@@ -12,6 +12,10 @@ import argparse
 import json
 from pathlib import Path
 
+# Allow importing codered-discover from same dir or /etc/codered
+sys.path.insert(0, "/etc/codered")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 OSSEC_CONF       = "/var/ossec/etc/ossec.conf"
 MODULES_DIR      = "/etc/codered/modules"
@@ -290,6 +294,35 @@ def cmd_restart(_args):
     apply_state(load_state())
     restart_agent()
 
+# ── Scan (Log Discovery) ──────────────────────────────────────────────────────
+def cmd_scan(_args):
+    try:
+        import importlib.util, pathlib
+        # Try to load codered-discover.py (hyphen in name needs special import)
+        discover_path = None
+        search_paths = [
+            "/etc/codered/codered-discover.py",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "codered-discover.py"),
+        ]
+        for p in search_paths:
+            if os.path.exists(p):
+                discover_path = p
+                break
+
+        if not discover_path:
+            print(f"{RED}  codered-discover.py not found.{RESET}")
+            print(f"  Expected at /etc/codered/codered-discover.py")
+            sys.exit(1)
+
+        spec   = importlib.util.spec_from_file_location("codered_discover", discover_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.run_discovery()
+
+    except KeyboardInterrupt:
+        print(f"\n\n{YELLOW}  Scan cancelled.{RESET}\n")
+        sys.exit(0)
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     if os.geteuid() != 0:
@@ -302,7 +335,8 @@ def main():
     )
     sub = parser.add_subparsers(dest="cmd")
 
-    sub.add_parser("setup",   help="Interactive module setup wizard")
+    sub.add_parser("scan",    help="[1] Scan endpoint and recommend logs to monitor")
+    sub.add_parser("setup",   help="[2] Interactive module setup wizard")
     sub.add_parser("status",  help="Show enabled/disabled modules and agent status")
     sub.add_parser("restart", help="Apply config and restart agent")
 
@@ -315,6 +349,7 @@ def main():
     args = parser.parse_args()
 
     cmds = {
+        "scan"   : cmd_scan,
         "setup"  : cmd_setup,
         "enable" : cmd_enable,
         "disable": cmd_disable,
@@ -326,7 +361,14 @@ def main():
         cmds[args.cmd](args)
     else:
         banner()
-        parser.print_help()
+        print(f"  {BOLD}Commands:{RESET}\n")
+        print(f"  {CYAN}sudo codered-agent scan{RESET}              — Scan & recommend logs to monitor")
+        print(f"  {CYAN}sudo codered-agent setup{RESET}             — Interactive module setup wizard")
+        print(f"  {CYAN}sudo codered-agent status{RESET}            — Show module & agent status")
+        print(f"  {CYAN}sudo codered-agent enable <module>{RESET}   — Enable a module")
+        print(f"  {CYAN}sudo codered-agent disable <module>{RESET}  — Disable a module")
+        print(f"  {CYAN}sudo codered-agent restart{RESET}           — Apply config & restart agent")
+        print()
 
 if __name__ == "__main__":
     main()

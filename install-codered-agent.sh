@@ -113,6 +113,12 @@ mkdir -p "${INSTALL_DIR}" "${TEMPLATES_DST}"
 curl -fsSL "${REPO_BASE}/codered-agent" -o "${CLI_BIN}"
 chmod +x "${CLI_BIN}"
 
+# ── Download log discovery script ─────────────────────────────────────────────
+log "Installing log discovery engine..."
+curl -fsSL "${REPO_BASE}/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
+chmod +x "${INSTALL_DIR}/codered-discover.py"
+ok "Log discovery engine installed."
+
 # ── Download module templates ─────────────────────────────────────────────────
 log "Downloading module templates..."
 TEMPLATES=(log-collection fim inventory threat vuln compliance active-response)
@@ -133,11 +139,16 @@ ok "Agent service started."
 echo ""
 echo -e "${GREEN}${BOLD}  Installation complete!${RESET}"
 echo ""
-echo -e "  Run the setup wizard to choose modules:"
-echo -e "  ${CYAN}${BOLD}  sudo codered-agent setup${RESET}"
+echo -e "  Available commands:"
+echo -e "    ${CYAN}${BOLD}sudo codered-agent scan${RESET}              — Scan & recommend logs to monitor"
+echo -e "    ${CYAN}sudo codered-agent setup${RESET}             — Interactive module setup wizard"
+echo -e "    ${CYAN}sudo codered-agent status${RESET}            — View module status"
+echo -e "    ${CYAN}sudo codered-agent enable <module>${RESET}   — Enable a module"
+echo -e "    ${CYAN}sudo codered-agent disable <module>${RESET}  — Disable a module"
 echo ""
-echo -e "  Other commands:"
-echo -e "    ${CYAN}sudo codered-agent status${RESET}          — view module status"
-echo -e "    ${CYAN}sudo codered-agent enable <module>${RESET} — enable a module"
-echo -e "    ${CYAN}sudo codered-agent disable <module>${RESET}— disable a module"
-echo ""
+
+read -rp "  Run log discovery scan now? (recommended) [Y/n]: " RUN_SCAN
+if [[ "${RUN_SCAN,,}" != "n" ]]; then
+  echo ""
+  codered-agent scan
+fi
