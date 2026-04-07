@@ -537,6 +537,7 @@
     gap: 18px;
     margin-bottom: 28px;
     position: relative;
+    align-items: flex-start;
   }
 
   .step:not(:last-child)::before {
@@ -561,9 +562,14 @@
     font-weight: 800;
     color: var(--red);
     flex-shrink: 0;
+    margin-top: 2px;
   }
 
-  .step-body { flex: 1; padding-top: 5px; }
+  .step-body {
+    flex: 1;
+    min-width: 0;
+    padding-top: 5px;
+  }
 
   .step-title {
     font-family: var(--sans);
@@ -596,6 +602,7 @@
     line-height: 2;
     margin: 16px 0;
     color: var(--text);
+    overflow-x: auto;
   }
 
   .tree .dir  { color: var(--cyan); }
@@ -624,6 +631,66 @@
     .main { margin-left: 0; padding: 32px 24px 80px; }
     .module-grid { grid-template-columns: 1fr; }
     .hero h1 { font-size: 30px; }
+  }
+
+  /* ── Print / PDF ─────────────────────────────────────── */
+  @media print {
+    @page {
+      margin: 20mm 18mm;
+      size: A4;
+    }
+
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+    body {
+      background: #0a0c0f !important;
+      font-size: 12px;
+    }
+
+    .sidebar { display: none !important; }
+
+    .layout { display: block; }
+
+    .main {
+      margin-left: 0 !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+    }
+
+    .hero { page-break-after: avoid; }
+
+    .section {
+      page-break-inside: avoid;
+      animation: none;
+    }
+
+    .section-header { page-break-after: avoid; }
+
+    h2, h3 { page-break-after: avoid; }
+
+    .code-block,
+    .terminal,
+    .table-wrap,
+    .callout,
+    .module-card,
+    .tree {
+      page-break-inside: avoid;
+    }
+
+    .copy-btn { display: none !important; }
+
+    .footer {
+      page-break-before: avoid;
+      margin-top: 20px;
+    }
+
+    .module-grid { grid-template-columns: 1fr 1fr; }
+
+    .step:not(:last-child)::before { display: none; }
+
+    a[href]::after {
+      content: none;
+    }
   }
 
   /* ── Animations ──────────────────────────────────────── */
@@ -1138,11 +1205,11 @@ sudo codered-agent restart</pre>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">compliance.xml</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">active-response.xml</span><br>
         <br>
-        <span class="dir">/var/ossec/</span><br>
+        <span class="dir">/etc/codered/agent/</span><br>
         &nbsp;&nbsp;├── <span class="dir">etc/</span><br>
-        &nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
+        &nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">codered-agent.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
         &nbsp;&nbsp;└── <span class="dir">logs/</span><br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">codered-agent.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
       </div>
 
       <h3>Windows</h3>
@@ -1151,12 +1218,9 @@ sudo codered-agent restart</pre>
         &nbsp;&nbsp;├── <span class="file">codered-agent.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI script</span><br>
         &nbsp;&nbsp;├── <span class="file">codered-agent.cmd</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI wrapper (run from anywhere)</span><br>
         &nbsp;&nbsp;├── <span class="file">codered-discover.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← log discovery engine</span><br>
-        &nbsp;&nbsp;└── <span class="dir">templates\</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← module config snippets</span><br>
-        <br>
-        <span class="dir">C:\Program Files (x86)\ossec-agent\</span><br>
-        &nbsp;&nbsp;├── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config</span><br>
+        &nbsp;&nbsp;├── <span class="dir">templates\</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← module config snippets</span><br>
         &nbsp;&nbsp;└── <span class="dir">logs\</span><br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">codered-agent.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
       </div>
     </section>
 
@@ -1171,21 +1235,21 @@ sudo codered-agent restart</pre>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre><span class="t-dim"># Verify manager IP</span>
-grep "&lt;address&gt;" /var/ossec/etc/ossec.conf
+grep "&lt;address&gt;" /etc/codered/agent/etc/codered-agent.conf
 
 <span class="t-dim"># Test connectivity</span>
 nc -zv &lt;manager-ip&gt; 1514
 nc -zv &lt;manager-ip&gt; 1515
 
 <span class="t-dim"># Check agent log</span>
-tail -f /var/ossec/logs/ossec.log</pre>
+tail -f /etc/codered/agent/logs/codered-agent.log</pre>
       </div>
 
       <h3>Agent service not starting</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>systemctl status wazuh-agent
-journalctl -u wazuh-agent -n 50
+        <pre>systemctl status codered-agent
+journalctl -u codered-agent -n 50
 sudo codered-agent restart</pre>
       </div>
 
@@ -1200,7 +1264,7 @@ sudo codered-agent restart</pre>
       <p>A backup is created automatically before every change:</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>sudo cp /var/ossec/etc/ossec.conf.bak /var/ossec/etc/ossec.conf
+        <pre>sudo cp /etc/codered/agent/etc/codered-agent.conf.bak /etc/codered/agent/etc/codered-agent.conf
 sudo codered-agent restart</pre>
       </div>
 
@@ -1229,12 +1293,12 @@ sudo codered-agent scan</pre>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre><span class="t-dim"># Stop service</span>
-sudo systemctl stop wazuh-agent
-sudo systemctl disable wazuh-agent
+sudo systemctl stop codered-agent
+sudo systemctl disable codered-agent
 
-<span class="t-dim"># Remove Wazuh agent</span>
-sudo apt-get remove --purge wazuh-agent   <span class="t-dim"># Debian/Ubuntu</span>
-sudo yum remove wazuh-agent               <span class="t-dim"># CentOS/RHEL</span>
+<span class="t-dim"># Remove CodeRed Server Agent</span>
+sudo apt-get remove --purge codered-agent   <span class="t-dim"># Debian/Ubuntu</span>
+sudo yum remove codered-agent               <span class="t-dim"># CentOS/RHEL</span>
 
 <span class="t-dim"># Remove CodeRed files</span>
 sudo rm -rf /etc/codered
@@ -1242,7 +1306,7 @@ sudo rm -f /usr/local/bin/codered-agent</pre>
       </div>
 
       <h3>Windows</h3>
-      <p>Go to <strong>Control Panel → Programs → Uninstall a program</strong>, find <strong>Wazuh Agent</strong>, and uninstall. Then delete <code>C:\Program Files\CodeRed\</code> manually.</p>
+      <p>Go to <strong>Control Panel → Programs → Uninstall a program</strong>, find <strong>CodeRed Server Agent</strong>, and uninstall. Then delete <code>C:\Program Files\CodeRed\</code> manually.</p>
     </section>
 
     <footer class="footer">
