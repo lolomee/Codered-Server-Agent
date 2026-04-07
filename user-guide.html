@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeRed Server Agent — User Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:        #e63946;
+    --red-dim:    #7f1d24;
+    --orange:     #ff6b35;
+    --bg:         #0a0c0f;
+    --bg2:        #111418;
+    --bg3:        #1a1e24;
+    --border:     #1f252d;
+    --border2:    #2a3140;
+    --text:       #c9d1dc;
+    --text-dim:   #5a6478;
+    --text-bright:#edf0f5;
+    --green:      #3ddc84;
+    --yellow:     #ffc94a;
+    --cyan:       #4cc9f0;
+    --mono:       'JetBrains Mono', monospace;
+    --sans:       'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.75;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    position: fixed;
+    top: 0; left: 0;
+    width: 260px;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+  }
+
+  .sidebar-logo {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--red);
+    color: #fff;
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 3px;
+    margin-bottom: 10px;
+  }
+
+  .logo-dot {
+    width: 7px; height: 7px;
+    background: #fff;
+    border-radius: 50%;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:.4; transform:scale(.7); }
+  }
+
+  .sidebar-title {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: .05em;
+  }
+
+  .sidebar-version {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+
+  .sidebar-nav {
+    padding: 16px 0;
+    flex: 1;
+  }
+
+  .nav-section {
+    padding: 6px 24px 2px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 24px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-family: var(--mono);
+    transition: color .15s, background .15s;
+    border-left: 2px solid transparent;
+  }
+
+  .nav-link:hover {
+    color: var(--text-bright);
+    background: var(--bg3);
+    border-left-color: var(--border2);
+  }
+
+  .nav-link.active {
+    color: var(--red);
+    border-left-color: var(--red);
+    background: rgba(230,57,70,.06);
+  }
+
+  .nav-num {
+    font-size: 10px;
+    color: var(--red-dim);
+    font-weight: 700;
+    min-width: 16px;
+  }
+
+  /* ── Main content ────────────────────────────────────── */
+  .main {
+    margin-left: 260px;
+    max-width: 900px;
+    padding: 60px 64px 100px;
+  }
+
+  /* ── Hero ────────────────────────────────────────────── */
+  .hero {
+    margin-bottom: 64px;
+    padding-bottom: 48px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -60px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(230,57,70,.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(230,57,70,.1);
+    border: 1px solid rgba(230,57,70,.25);
+    color: var(--red);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 3px;
+    margin-bottom: 20px;
+  }
+
+  .hero h1 {
+    font-family: var(--sans);
+    font-size: 42px;
+    font-weight: 800;
+    color: var(--text-bright);
+    line-height: 1.15;
+    margin-bottom: 16px;
+    letter-spacing: -.02em;
+  }
+
+  .hero h1 span { color: var(--red); }
+
+  .hero-sub {
+    font-size: 14px;
+    color: var(--text-dim);
+    max-width: 560px;
+    line-height: 1.7;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 28px;
+    flex-wrap: wrap;
+  }
+
+  .meta-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .meta-chip .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  /* ── Sections ────────────────────────────────────────── */
+  .section {
+    margin-bottom: 72px;
+    scroll-margin-top: 40px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-num {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--red);
+    background: rgba(230,57,70,.08);
+    border: 1px solid rgba(230,57,70,.2);
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: .08em;
+  }
+
+  .section h2 {
+    font-family: var(--sans);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -.01em;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin: 32px 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h3::before {
+    content: '';
+    display: inline-block;
+    width: 3px; height: 16px;
+    background: var(--red);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  p {
+    color: var(--text);
+    margin-bottom: 14px;
+    font-size: 13.5px;
+  }
+
+  /* ── Tables ──────────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 20px 0;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead tr {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border2);
+  }
+
+  th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  tr:hover td { background: rgba(255,255,255,.015); }
+
+  td code {
+    background: var(--bg3);
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ── Code blocks ─────────────────────────────────────── */
+  .code-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 16px 0;
+    overflow: hidden;
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-lang {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .copy-btn {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+    letter-spacing: .05em;
+  }
+
+  .copy-btn:hover { color: var(--text-bright); border-color: var(--text-dim); }
+  .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+  pre {
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .t-red    { color: var(--red); }
+  .t-green  { color: var(--green); }
+  .t-yellow { color: var(--yellow); }
+  .t-cyan   { color: var(--cyan); }
+  .t-dim    { color: var(--text-dim); }
+  .t-bright { color: var(--text-bright); }
+
+  /* ── Terminal blocks ─────────────────────────────────── */
+  .terminal {
+    background: #080a0d;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 16px 0;
+    overflow: hidden;
+  }
+
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tbar-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  .tbar-dot:nth-child(1) { background: #ff5f57; }
+  .tbar-dot:nth-child(2) { background: #febc2e; }
+  .tbar-dot:nth-child(3) { background: #28c840; }
+
+  .terminal-title {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: 8px;
+    letter-spacing: .05em;
+  }
+
+  .terminal pre {
+    padding: 20px;
+    color: var(--text);
+  }
+
+  /* ── Callout boxes ───────────────────────────────────── */
+  .callout {
+    display: flex;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 6px;
+    margin: 20px 0;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .callout-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+  .callout.tip {
+    background: rgba(61,220,132,.06);
+    border: 1px solid rgba(61,220,132,.2);
+    color: #8de8b4;
+  }
+
+  .callout.warning {
+    background: rgba(255,201,74,.06);
+    border: 1px solid rgba(255,201,74,.2);
+    color: #ffd97a;
+  }
+
+  .callout.info {
+    background: rgba(76,201,240,.06);
+    border: 1px solid rgba(76,201,240,.2);
+    color: #7ed5f0;
+  }
+
+  /* ── Module cards ────────────────────────────────────── */
+  .module-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 20px 0;
+  }
+
+  .module-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px;
+    transition: border-color .2s;
+  }
+
+  .module-card:hover { border-color: var(--border2); }
+
+  .module-tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+
+  .tag-high   { background: rgba(230,57,70,.15); color: var(--red); }
+  .tag-medium { background: rgba(255,201,74,.12); color: var(--yellow); }
+  .tag-low    { background: rgba(61,220,132,.1);  color: var(--green); }
+
+  .module-name {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+
+  .module-cmd {
+    font-size: 11px;
+    color: var(--cyan);
+    font-family: var(--mono);
+    margin-bottom: 8px;
+  }
+
+  .module-desc {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* ── Step indicators ─────────────────────────────────── */
+  .steps { margin: 20px 0; }
+
+  .step {
+    display: flex;
+    gap: 18px;
+    margin-bottom: 28px;
+    position: relative;
+  }
+
+  .step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 15px; top: 36px;
+    width: 1px;
+    bottom: -14px;
+    background: var(--border);
+  }
+
+  .step-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--red);
+    flex-shrink: 0;
+  }
+
+  .step-body { flex: 1; padding-top: 5px; }
+
+  .step-title {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+
+  /* ── Keys ────────────────────────────────────────────── */
+  kbd {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-bottom-width: 2px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-bright);
+  }
+
+  /* ── Directory tree ──────────────────────────────────── */
+  .tree {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 2;
+    margin: 16px 0;
+    color: var(--text);
+  }
+
+  .tree .dir  { color: var(--cyan); }
+  .tree .file { color: var(--text); }
+  .tree .note { color: var(--text-dim); }
+
+  /* ── Footer ──────────────────────────────────────────── */
+  .footer {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .footer a { color: var(--red); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* ── Responsive ──────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .main { margin-left: 0; padding: 32px 24px 80px; }
+    .module-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 30px; }
+  }
+
+  /* ── Animations ──────────────────────────────────────── */
+  .section {
+    animation: fadeUp .4s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-badge"><span class="logo-dot"></span> CodeRed</div>
+      <div class="sidebar-title">Server Agent</div>
+      <div class="sidebar-version">User Guide · v1.0.0</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Getting Started</div>
+      <a href="#overview"      class="nav-link active"><span class="nav-num">01</span> Overview</a>
+      <a href="#requirements"  class="nav-link"><span class="nav-num">02</span> Requirements</a>
+      <a href="#installation"  class="nav-link"><span class="nav-num">03</span> Installation</a>
+      <a href="#setup"         class="nav-link"><span class="nav-num">04</span> First-Time Setup</a>
+
+      <div class="nav-section">Reference</div>
+      <a href="#cli"           class="nav-link"><span class="nav-num">05</span> CLI Reference</a>
+      <a href="#modules"       class="nav-link"><span class="nav-num">06</span> Modules</a>
+      <a href="#log-discovery" class="nav-link"><span class="nav-num">07</span> Log Discovery</a>
+      <a href="#structure"     class="nav-link"><span class="nav-num">08</span> Directory Structure</a>
+
+      <div class="nav-section">Support</div>
+      <a href="#troubleshooting" class="nav-link"><span class="nav-num">09</span> Troubleshooting</a>
+      <a href="#uninstall"       class="nav-link"><span class="nav-num">10</span> Uninstalling</a>
+    </nav>
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-label">&#9679; User Guide</div>
+      <h1>CodeRed<br><span>Server Agent</span></h1>
+      <p class="hero-sub">A modular endpoint monitoring and security agent. Collect logs, detect threats, audit compliance — configured in minutes with a single CLI.</p>
+      <div class="hero-meta">
+        <div class="meta-chip"><span class="dot"></span> v1.0.0</div>
+        <div class="meta-chip"><span class="dot" style="background:var(--cyan)"></span> Linux &amp; Windows</div>
+        <div class="meta-chip"><span class="dot" style="background:var(--yellow)"></span> Wazuh-based</div>
+      </div>
+    </div>
+
+    <!-- 01 Overview -->
+    <section class="section" id="overview">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <h2>Overview</h2>
+      </div>
+      <p>CodeRed Server Agent is built on top of the Wazuh agent with a custom CLI that removes the need to manually edit configuration files. Install once, then use <code>codered-agent</code> commands to manage everything.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Capability</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>log-collection</code></td><td>System, application, and security log collection</td></tr>
+            <tr><td><code>fim</code></td><td>File Integrity Monitoring with SHA-256 checksums</td></tr>
+            <tr><td><code>inventory</code></td><td>Hardware, OS, packages, processes, open ports</td></tr>
+            <tr><td><code>threat</code></td><td>Rootkit scanning, brute-force, MITRE ATT&amp;CK detection</td></tr>
+            <tr><td><code>vuln</code></td><td>CVE mapping for installed packages (NVD feed)</td></tr>
+            <tr><td><code>compliance</code></td><td>CIS Benchmark and custom SCA policy checks</td></tr>
+            <tr><td><code>active-response</code></td><td>Auto-block IPs, kill processes, quarantine files on alert</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 02 Requirements -->
+    <section class="section" id="requirements">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <h2>Requirements</h2>
+      </div>
+
+      <h3>CodeRed Manager</h3>
+      <p>Your CodeRed Manager must be running and reachable from the endpoint before installing the agent.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Port</th><th>Protocol</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>1514</code></td><td>TCP/UDP</td><td>Agent communication</td></tr>
+            <tr><td><code>1515</code></td><td>TCP</td><td>Agent registration</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Linux Agent</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Requirement</th><th>Minimum</th></tr></thead>
+          <tbody>
+            <tr><td>OS</td><td>Ubuntu 20.04+, Debian 11+, CentOS/RHEL 8+</td></tr>
+            <tr><td>Python</td><td>3.6+</td></tr>
+            <tr><td>Access</td><td>Root (sudo)</td></tr>
+            <tr><td>Network</td><td>Outbound TCP 1514/1515 to CodeRed Manager</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Windows Agent</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Requirement</th><th>Minimum</th></tr></thead>
+          <tbody>
+            <tr><td>OS</td><td>Windows Server 2016+, Windows 10+</td></tr>
+            <tr><td>PowerShell</td><td>5.0+</td></tr>
+            <tr><td>Python</td><td>3.6+</td></tr>
+            <tr><td>Access</td><td>Administrator</td></tr>
+            <tr><td>Network</td><td>Outbound TCP 1514/1515 to CodeRed Manager</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 03 Installation -->
+    <section class="section" id="installation">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <h2>Installation</h2>
+      </div>
+
+      <h3>Linux</h3>
+      <p>Run the one-line installer as root. You will be prompted for your CodeRed Manager IP if not set.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh | sudo bash</pre>
+      </div>
+
+      <p>To pass the Manager IP directly for silent/scripted deployments:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">bash</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre>CODERED_MANAGER_IP=<span class="t-yellow">10.0.0.1</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
+      </div>
+
+      <p style="font-size:12.5px; color:var(--text-dim); margin-top:8px;">The installer will: detect your distro → add Wazuh repo → install agent → install <code>codered-agent</code> CLI → download module templates and log discovery engine → start service → prompt for log scan.</p>
+
+      <h3>Windows</h3>
+      <p>Open <strong>PowerShell as Administrator</strong> and run:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">powershell</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre>Set-ExecutionPolicy Bypass -Scope Process -Force
+iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.ps1 | iex</pre>
+      </div>
+    </section>
+
+    <!-- 04 First-Time Setup -->
+    <section class="section" id="setup">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <h2>First-Time Setup</h2>
+      </div>
+      <p>Complete these two steps after installation to fully configure your agent.</p>
+
+      <div class="steps">
+        <!-- Step 1 -->
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Run the Log Discovery Scan</div>
+            <p>Scans your endpoint for running services, detects log files, scores each by security relevance, and presents recommendations.</p>
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+              <pre>sudo codered-agent scan</pre>
+            </div>
+            <div class="terminal">
+              <div class="terminal-bar">
+                <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+                <span class="terminal-title">codered-agent scan</span>
+              </div>
+              <pre>  <span class="t-cyan">CodeRed Log Discovery</span>
+  Scanning endpoint...
+
+  <span class="t-green">✔</span> Active services detected : <span class="t-bright">42</span>
+  <span class="t-green">✔</span> Installed packages       : <span class="t-bright">381</span>
+  <span class="t-green">✔</span> Known logs found         : <span class="t-bright">12</span>
+  <span class="t-green">✔</span> Custom logs found        : <span class="t-bright">3</span>
+
+  Press Enter to review recommendations...
+
+  <span class="t-red">🔴 HIGH PRIORITY</span>
+
+  <span class="t-cyan">▶</span> [<span class="t-green">✔</span>] /var/log/auth.log
+       <span class="t-dim">SSH logins, sudo usage, PAM auth failures</span>
+
+    [<span class="t-green">✔</span>] /var/log/syslog
+       <span class="t-dim">General system events, daemon start/stop</span>
+
+    [<span class="t-green">✔</span>] /var/log/ufw.log
+       <span class="t-dim">Firewall block/allow events</span>
+
+  <span class="t-yellow">🟡 MEDIUM PRIORITY</span>
+
+    [<span class="t-green">✔</span>] /var/log/nginx/access.log
+       <span class="t-dim">HTTP requests — detect web attacks</span>
+
+  <span class="t-dim">🟢 LOW PRIORITY</span>
+
+    [<span class="t-dim">✖</span>] /var/log/mail.log
+       <span class="t-dim">Mail delivery events</span></pre>
+            </div>
+
+            <div class="table-wrap" style="margin-top:16px;">
+              <table>
+                <thead><tr><th>Key</th><th>Action</th></tr></thead>
+                <tbody>
+                  <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Move cursor</td></tr>
+                  <tr><td><kbd>Space</kbd></td><td>Toggle selected/deselected</td></tr>
+                  <tr><td><kbd>A</kbd></td><td>Select all</td></tr>
+                  <tr><td><kbd>N</kbd></td><td>Deselect all</td></tr>
+                  <tr><td><kbd>Enter</kbd></td><td>Confirm and apply</td></tr>
+                  <tr><td><kbd>Q</kbd></td><td>Cancel</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="callout tip">
+              <span class="callout-icon">💡</span>
+              <span>You can re-run <code>sudo codered-agent scan</code> at any time — for example, after installing a new web server or database.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Run the Module Setup Wizard</div>
+            <p>Choose which security modules to enable for this endpoint.</p>
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+              <pre>sudo codered-agent setup</pre>
+            </div>
+            <div class="terminal">
+              <div class="terminal-bar">
+                <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+                <span class="terminal-title">codered-agent setup</span>
+              </div>
+              <pre>  <span class="t-cyan">____          _      ____          _</span>
+  <span class="t-cyan">/ ___|___   __| | ___|  _ \ ___  __| |</span>
+  <span class="t-cyan">| |   / _ \ / _` |/ _ \ |_) / _ \/ _` |</span>
+  <span class="t-cyan">| |__| (_) | (_| |  __/  _ &lt;  __/ (_| |</span>
+  <span class="t-cyan"> \____\___/ \__,_|\___|_| \_\___|__,_|</span>
+
+  Select modules to enable  <span class="t-dim">(↑↓ move · Space toggle · Enter confirm)</span>
+
+  <span class="t-cyan">▶</span> [<span class="t-green">✔</span>] <span class="t-bright">Log Collection</span>
+       <span class="t-dim">Collect system &amp; application logs</span>
+
+    [<span class="t-green">✔</span>] <span class="t-bright">File Integrity Monitoring</span>
+       <span class="t-dim">Detect file create/modify/delete with checksums</span>
+
+    [<span class="t-green">✔</span>] <span class="t-bright">System Inventory</span>
+       <span class="t-dim">Hardware, OS, packages, processes, open ports</span>
+
+    [<span class="t-green">✔</span>] <span class="t-bright">Threat Detection</span>
+       <span class="t-dim">Rootkit scanning, brute-force, MITRE ATT&amp;CK</span>
+
+    [<span class="t-red">✖</span>] <span class="t-bright">Vulnerability Detection</span>
+       <span class="t-dim">Map installed packages to CVEs (NVD feed)</span>
+
+    [<span class="t-red">✖</span>] <span class="t-bright">Compliance &amp; Auditing</span>
+       <span class="t-dim">CIS Benchmark, PCI-DSS policy checks</span>
+
+    [<span class="t-red">✖</span>] <span class="t-bright">Active Response</span>
+       <span class="t-dim">Auto-block IPs, kill processes on alert</span></pre>
+            </div>
+
+            <h3 style="margin-top:24px;">Recommended modules by environment</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Environment</th><th>Recommended Modules</th></tr></thead>
+                <tbody>
+                  <tr><td>General server</td><td>Log Collection, FIM, Inventory, Threat</td></tr>
+                  <tr><td>Web server</td><td>+ Vulnerability Detection</td></tr>
+                  <tr><td>PCI / compliance</td><td>+ Compliance &amp; Auditing</td></tr>
+                  <tr><td>High-security / SOC</td><td>All modules including Active Response</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 CLI Reference -->
+    <section class="section" id="cli">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <h2>CLI Reference</h2>
+      </div>
+      <p>All commands require root / Administrator privileges.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Command</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>scan</code></td><td>Scan endpoint for logs and choose which to monitor</td></tr>
+            <tr><td><code>setup</code></td><td>Interactive module enable/disable wizard</td></tr>
+            <tr><td><code>status</code></td><td>Show all module states and agent service status</td></tr>
+            <tr><td><code>enable &lt;module&gt;</code></td><td>Enable a specific module</td></tr>
+            <tr><td><code>disable &lt;module&gt;</code></td><td>Disable a specific module</td></tr>
+            <tr><td><code>restart</code></td><td>Apply config changes and restart the agent</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash — examples</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Run log discovery</span>
+sudo codered-agent scan
+
+<span class="t-dim"># Run module setup wizard</span>
+sudo codered-agent setup
+
+<span class="t-dim"># Check current status</span>
+sudo codered-agent status
+
+<span class="t-dim"># Enable vulnerability detection</span>
+sudo codered-agent enable vuln
+
+<span class="t-dim"># Disable active response</span>
+sudo codered-agent disable active-response
+
+<span class="t-dim"># Restart agent after manual config changes</span>
+sudo codered-agent restart</pre>
+      </div>
+
+      <h3>Status output</h3>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+          <span class="terminal-title">codered-agent status</span>
+        </div>
+        <pre>  <span class="t-bright">Module Status</span>
+
+  Module                    Status       Description
+  <span class="t-dim">────────────────────────────────────────────────────────────────────</span>
+  Log Collection            <span class="t-green">enabled</span>      Collect system &amp; application logs
+  File Integrity Monitoring <span class="t-green">enabled</span>      Detect file changes with checksums
+  System Inventory          <span class="t-green">enabled</span>      Hardware, OS, packages, processes
+  Threat Detection          <span class="t-green">enabled</span>      Rootkit, brute-force, MITRE ATT&amp;CK
+  Vulnerability Detection   <span class="t-red">disabled</span>     CVE mapping for installed packages
+  Compliance &amp; Auditing     <span class="t-red">disabled</span>     CIS Benchmark and custom SCA checks
+  Active Response           <span class="t-red">disabled</span>     Auto-block IPs, kill processes on alert
+
+  Agent service: <span class="t-green">active</span></pre>
+      </div>
+    </section>
+
+    <!-- 06 Modules -->
+    <section class="section" id="modules">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <h2>Modules</h2>
+      </div>
+
+      <div class="module-grid">
+        <div class="module-card">
+          <div class="module-tag tag-high">Required</div>
+          <div class="module-name">Log Collection</div>
+          <div class="module-cmd">codered-agent enable log-collection</div>
+          <div class="module-desc">Collects logs from system files and application sources. Use <code>codered-agent scan</code> to manage included log paths.</div>
+        </div>
+        <div class="module-card">
+          <div class="module-tag tag-high">Recommended</div>
+          <div class="module-name">File Integrity Monitoring</div>
+          <div class="module-cmd">codered-agent enable fim</div>
+          <div class="module-desc">Monitors <code>/etc</code>, <code>/bin</code>, <code>/sbin</code> for unauthorised changes using SHA-256 checksums. Detects create, modify, and delete events.</div>
+        </div>
+        <div class="module-card">
+          <div class="module-tag tag-high">Recommended</div>
+          <div class="module-name">System Inventory</div>
+          <div class="module-cmd">codered-agent enable inventory</div>
+          <div class="module-desc">Snapshots installed packages, running processes, open ports, and network interfaces every hour.</div>
+        </div>
+        <div class="module-card">
+          <div class="module-tag tag-high">Recommended</div>
+          <div class="module-name">Threat Detection</div>
+          <div class="module-cmd">codered-agent enable threat</div>
+          <div class="module-desc">Rootkit and hidden process scanning. Includes rules for SSH/web brute force, MITRE ATT&amp;CK techniques, and privilege escalation.</div>
+        </div>
+        <div class="module-card">
+          <div class="module-tag tag-medium">Optional</div>
+          <div class="module-name">Vulnerability Detection</div>
+          <div class="module-cmd">codered-agent enable vuln</div>
+          <div class="module-desc">Compares installed packages against the NVD CVE database. Supports <code>apt</code>, <code>yum</code>, <code>dnf</code>, and Windows Update.</div>
+        </div>
+        <div class="module-card">
+          <div class="module-tag tag-medium">Optional</div>
+          <div class="module-name">Compliance &amp; Auditing</div>
+          <div class="module-cmd">codered-agent enable compliance</div>
+          <div class="module-desc">Runs CIS Benchmark SCA checks. Custom YAML policies can be added to <code>/var/ossec/etc/shared/codered-sca/</code>.</div>
+        </div>
+        <div class="module-card" style="grid-column: 1 / -1;">
+          <div class="module-tag tag-medium">Optional</div>
+          <div class="module-name">Active Response</div>
+          <div class="module-cmd">codered-agent enable active-response</div>
+          <div class="module-desc">Automatically executes firewall drops and process kills when alerts are triggered. IPs are auto-unblocked after 5 minutes by default.</div>
+        </div>
+      </div>
+
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span><strong>Active Response caution:</strong> Enable only after testing in your environment. Misconfigured rules may block legitimate traffic including your own management connections.</span>
+      </div>
+    </section>
+
+    <!-- 07 Log Discovery -->
+    <section class="section" id="log-discovery">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <h2>Log Discovery</h2>
+      </div>
+      <p>The log discovery engine (<code>codered-discover.py</code>) is the most important first step. It ensures you monitor the logs that matter for your specific environment.</p>
+
+      <h3>How It Works</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">Service Detection</div>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Queries <code>systemctl</code> for all active services and <code>dpkg</code>/<code>rpm</code> for installed packages.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">Log File Scan</div>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Checks 30+ known log paths, resolves globs, and scans <code>/var/log</code> for any custom <code>.log</code> files.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Priority Scoring</div>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Assigns High / Medium / Low priority based on security relevance. High and Medium are selected by default.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">Config Injection</div>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Writes selected paths as <code>&lt;localfile&gt;</code> blocks into <code>ossec.conf</code> and restarts the agent.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3>Priority Levels</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Priority</th><th>Examples</th><th>Auto-selected</th></tr></thead>
+          <tbody>
+            <tr><td><span style="color:var(--red)">🔴 High</span></td><td>auth.log, syslog, audit.log, ufw.log, kern.log</td><td>Yes</td></tr>
+            <tr><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>nginx/access.log, mysql/error.log, cron.log, dpkg.log</td><td>Yes</td></tr>
+            <tr><td><span style="color:var(--green)">🟢 Low</span></td><td>mail.log, dmesg</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Re-run <code>sudo codered-agent scan</code> whenever you install new services. The previous discovery configuration is automatically replaced.</span>
+      </div>
+    </section>
+
+    <!-- 08 Directory Structure -->
+    <section class="section" id="structure">
+      <div class="section-header">
+        <span class="section-num">08</span>
+        <h2>Directory Structure</h2>
+      </div>
+
+      <h3>Linux</h3>
+      <div class="tree">
+        <span class="dir">/usr/local/bin/</span><br>
+        &nbsp;&nbsp;└── <span class="file">codered-agent</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI binary</span><br>
+        <br>
+        <span class="dir">/etc/codered/</span><br>
+        &nbsp;&nbsp;├── <span class="file">state.json</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← enabled module state</span><br>
+        &nbsp;&nbsp;├── <span class="file">codered-discover.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← log discovery engine</span><br>
+        &nbsp;&nbsp;└── <span class="dir">templates/</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">log-collection.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">fim.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">inventory.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">threat.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">vuln.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">compliance.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">active-response.xml</span><br>
+        <br>
+        <span class="dir">/var/ossec/</span><br>
+        &nbsp;&nbsp;├── <span class="dir">etc/</span><br>
+        &nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
+        &nbsp;&nbsp;└── <span class="dir">logs/</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
+      </div>
+
+      <h3>Windows</h3>
+      <div class="tree">
+        <span class="dir">C:\Program Files\CodeRed\Agent\</span><br>
+        &nbsp;&nbsp;├── <span class="file">codered-agent.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI script</span><br>
+        &nbsp;&nbsp;├── <span class="file">codered-agent.cmd</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI wrapper (run from anywhere)</span><br>
+        &nbsp;&nbsp;├── <span class="file">codered-discover.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← log discovery engine</span><br>
+        &nbsp;&nbsp;└── <span class="dir">templates\</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← module config snippets</span><br>
+        <br>
+        <span class="dir">C:\Program Files (x86)\ossec-agent\</span><br>
+        &nbsp;&nbsp;├── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config</span><br>
+        &nbsp;&nbsp;└── <span class="dir">logs\</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>
+      </div>
+    </section>
+
+    <!-- 09 Troubleshooting -->
+    <section class="section" id="troubleshooting">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <h2>Troubleshooting</h2>
+      </div>
+
+      <h3>Agent not connecting to manager</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Verify manager IP</span>
+grep "&lt;address&gt;" /var/ossec/etc/ossec.conf
+
+<span class="t-dim"># Test connectivity</span>
+nc -zv &lt;manager-ip&gt; 1514
+nc -zv &lt;manager-ip&gt; 1515
+
+<span class="t-dim"># Check agent log</span>
+tail -f /var/ossec/logs/ossec.log</pre>
+      </div>
+
+      <h3>Agent service not starting</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>systemctl status wazuh-agent
+journalctl -u wazuh-agent -n 50
+sudo codered-agent restart</pre>
+      </div>
+
+      <h3>Module changes not taking effect</h3>
+      <p>Always run <code>restart</code> after manual config edits:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>sudo codered-agent restart</pre>
+      </div>
+
+      <h3>Config file corrupted</h3>
+      <p>A backup is created automatically before every change:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>sudo cp /var/ossec/etc/ossec.conf.bak /var/ossec/etc/ossec.conf
+sudo codered-agent restart</pre>
+      </div>
+
+      <h3>Log discovery shows no logs</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Check log directory</span>
+ls -lh /var/log/
+
+<span class="t-dim"># Check active services</span>
+systemctl list-units --type=service --state=active
+
+<span class="t-dim"># Re-run discovery</span>
+sudo codered-agent scan</pre>
+      </div>
+    </section>
+
+    <!-- 10 Uninstalling -->
+    <section class="section" id="uninstall">
+      <div class="section-header">
+        <span class="section-num">10</span>
+        <h2>Uninstalling</h2>
+      </div>
+
+      <h3>Linux</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Stop service</span>
+sudo systemctl stop wazuh-agent
+sudo systemctl disable wazuh-agent
+
+<span class="t-dim"># Remove Wazuh agent</span>
+sudo apt-get remove --purge wazuh-agent   <span class="t-dim"># Debian/Ubuntu</span>
+sudo yum remove wazuh-agent               <span class="t-dim"># CentOS/RHEL</span>
+
+<span class="t-dim"># Remove CodeRed files</span>
+sudo rm -rf /etc/codered
+sudo rm -f /usr/local/bin/codered-agent</pre>
+      </div>
+
+      <h3>Windows</h3>
+      <p>Go to <strong>Control Panel → Programs → Uninstall a program</strong>, find <strong>Wazuh Agent</strong>, and uninstall. Then delete <code>C:\Program Files\CodeRed\</code> manually.</p>
+    </section>
+
+    <footer class="footer">
+      <span>CodeRed Server Agent · User Guide v1.0.0</span>
+      <a href="https://github.com/lolomee/Codered-Server-Agent" target="_blank">GitHub Repository →</a>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  // ── Copy button ────────────────────────────────────────
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'copy';
+        btn.classList.remove('copied');
+      }, 1800);
+    });
+  }
+
+  // ── Active nav link on scroll ──────────────────────────
+  const sections = document.querySelectorAll('.section');
+  const navLinks = document.querySelectorAll('.nav-link');
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        navLinks.forEach(l => {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
