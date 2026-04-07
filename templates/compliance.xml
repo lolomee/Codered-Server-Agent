@@ -1,0 +1,10 @@
+  <!-- Compliance & Auditing Module -->
+  <wodle name="sca">
+    <enabled>yes</enabled>
+    <scan_on_start>yes</scan_on_start>
+    <interval>12h</interval>
+    <skip_nfs>yes</skip_nfs>
+  </wodle>
+
+  <!-- CIS Benchmark policies are loaded from /var/ossec/ruleset/sca/ -->
+  <!-- Custom CodeRed policies from /var/ossec/etc/shared/codered-sca/ -->
