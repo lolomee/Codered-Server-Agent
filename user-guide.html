@@ -41,8 +41,7 @@
 
   /* ── Layout ─────────────────────────────────────────── */
   .layout {
-    display: grid;
-    grid-template-columns: 260px 1fr;
+    display: block;
     min-height: 100vh;
   }
 
@@ -745,7 +744,7 @@
       <div class="hero-meta">
         <div class="meta-chip"><span class="dot"></span> v1.0.0</div>
         <div class="meta-chip"><span class="dot" style="background:var(--cyan)"></span> Linux &amp; Windows</div>
-        <div class="meta-chip"><span class="dot" style="background:var(--yellow)"></span> Wazuh-based</div>
+        <div class="meta-chip"><span class="dot" style="background:var(--yellow)"></span> Linux &amp; Windows</div>
       </div>
     </div>
 
@@ -755,7 +754,7 @@
         <span class="section-num">01</span>
         <h2>Overview</h2>
       </div>
-      <p>CodeRed Server Agent is built on top of the Wazuh agent with a custom CLI that removes the need to manually edit configuration files. Install once, then use <code>codered-agent</code> commands to manage everything.</p>
+      <p>CodeRed Server Agent is a modular endpoint monitoring and security agent that collects logs, monitors files, detects threats, and reports to your CodeRed Manager. It ships with a custom CLI that makes configuration simple for any customer — no manual config file editing required.</p>
 
       <div class="table-wrap">
         <table>
@@ -847,7 +846,7 @@
         <pre>CODERED_MANAGER_IP=<span class="t-yellow">10.0.0.1</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
       </div>
 
-      <p style="font-size:12.5px; color:var(--text-dim); margin-top:8px;">The installer will: detect your distro → add Wazuh repo → install agent → install <code>codered-agent</code> CLI → download module templates and log discovery engine → start service → prompt for log scan.</p>
+      <p style="font-size:12.5px; color:var(--text-dim); margin-top:8px;">The installer will: detect your distro → add CodeRed package repository → install agent → install <code>codered-agent</code> CLI → download module templates and log discovery engine → start service → prompt for log scan.</p>
 
       <h3>Windows</h3>
       <p>Open <strong>PowerShell as Administrator</strong> and run:</p>
@@ -1107,7 +1106,7 @@ sudo codered-agent restart</pre>
           <div class="module-tag tag-medium">Optional</div>
           <div class="module-name">Compliance &amp; Auditing</div>
           <div class="module-cmd">codered-agent enable compliance</div>
-          <div class="module-desc">Runs CIS Benchmark SCA checks. Custom YAML policies can be added to <code>/var/ossec/etc/shared/codered-sca/</code>.</div>
+          <div class="module-desc">Runs CIS Benchmark SCA checks. Custom YAML policies can be added to <code>/etc/codered/sca/</code>.</div>
         </div>
         <div class="module-card" style="grid-column: 1 / -1;">
           <div class="module-tag tag-medium">Optional</div>
@@ -1158,7 +1157,7 @@ sudo codered-agent restart</pre>
           <div class="step-num">4</div>
           <div class="step-body">
             <div class="step-title">Config Injection</div>
-            <p style="margin:0; font-size:13px; color:var(--text-dim);">Writes selected paths as <code>&lt;localfile&gt;</code> blocks into <code>ossec.conf</code> and restarts the agent.</p>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Writes selected paths as <code>&lt;localfile&gt;</code> blocks into <code>codered-agent.conf</code> and restarts the agent.</p>
           </div>
         </div>
       </div>
