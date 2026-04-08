@@ -17,10 +17,29 @@ sys.path.insert(0, "/etc/codered")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-OSSEC_CONF       = "/var/ossec/etc/ossec.conf"
-MODULES_DIR      = "/etc/codered/modules"
-STATE_FILE       = "/etc/codered/state.json"
-TEMPLATES_DIR    = "/etc/codered/templates"
+if sys.platform == "win32":
+    _base        = os.path.dirname(os.path.abspath(__file__))
+    OSSEC_CONF   = r"C:\Program Files (x86)\ossec-agent\ossec.conf"
+    MODULES_DIR  = _base
+    STATE_FILE   = os.path.join(_base, "state.json")
+    TEMPLATES_DIR= os.path.join(_base, "templates")
+else:
+    OSSEC_CONF   = "/var/ossec/etc/ossec.conf"
+    MODULES_DIR  = "/etc/codered/modules"
+    STATE_FILE   = "/etc/codered/state.json"
+    TEMPLATES_DIR= "/etc/codered/templates"
+
+# ── Admin / root check ────────────────────────────────────────────────────────
+def is_admin() -> bool:
+    """Cross-platform admin/root check."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        else:
+            return os.geteuid() == 0
+    except Exception:
+        return False
 
 # ── Module definitions ────────────────────────────────────────────────────────
 MODULES = {
@@ -156,8 +175,12 @@ def apply_state(state: dict):
 # ── Service helpers ───────────────────────────────────────────────────────────
 def restart_agent():
     print(f"{CYAN}  Restarting CodeRed Agent...{RESET}")
-    r = subprocess.run(["systemctl", "restart", "wazuh-agent"],
-                       capture_output=True, text=True)
+    svc = "Wazuh" if sys.platform == "win32" else "wazuh-agent"
+    r = subprocess.run(
+        ["sc", "stop", svc, "&&", "sc", "start", svc] if sys.platform == "win32"
+        else ["systemctl", "restart", svc],
+        capture_output=True, text=True, shell=(sys.platform == "win32")
+    )
     if r.returncode == 0:
         print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
     else:
@@ -183,23 +206,34 @@ def cmd_setup(_args):
             print(f"       {mod['desc']}\n")
         print(f"  {YELLOW}──────────────────────────────────────────{RESET}")
 
-    import tty, termios
-
     def getch():
-        fd   = sys.stdin.fileno()
-        old  = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            return sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        if sys.platform == "win32":
+            import msvcrt
+            ch = msvcrt.getwch()
+            if ch in ('\x00', '\xe0'):  # special key prefix on Windows
+                ch2 = msvcrt.getwch()
+                if ch2 == 'H': return "\x1b[A"   # up arrow
+                if ch2 == 'P': return "\x1b[B"   # down arrow
+                return ''
+            return ch
+        else:
+            import tty, termios
+            fd  = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                return sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
     render()
     while True:
         ch = getch()
-        if ch == "\x1b":
-            getch()  # [
-            arrow = getch()
+        if ch == "\x1b[A" or ch == "\x1b":
+            if ch == "\x1b":
+                getch(); arrow = getch()
+            else:
+                arrow = "A"
             if arrow == "A" and cursor > 0:
                 cursor -= 1
             elif arrow == "B" and cursor < len(keys) - 1:
@@ -283,9 +317,13 @@ def cmd_status(_args):
     print()
 
     # Agent service status
-    r = subprocess.run(["systemctl", "is-active", "wazuh-agent"],
-                       capture_output=True, text=True)
-    svc = r.stdout.strip()
+    if sys.platform == "win32":
+        r = subprocess.run(["sc", "query", "Wazuh"], capture_output=True, text=True)
+        svc = "active" if "RUNNING" in r.stdout else "inactive"
+    else:
+        r = subprocess.run(["systemctl", "is-active", "wazuh-agent"],
+                           capture_output=True, text=True)
+        svc = r.stdout.strip()
     colour = GREEN if svc == "active" else RED
     print(f"  Agent service: {colour}{BOLD}{svc}{RESET}\n")
 
@@ -325,8 +363,8 @@ def cmd_scan(_args):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    if os.geteuid() != 0:
-        print(f"{RED}Please run as root (sudo codered-agent ...){RESET}")
+    if not is_admin():
+        print(f"{RED}Please run as Administrator (Windows) or root (Linux).{RESET}")
         sys.exit(1)
 
     parser = argparse.ArgumentParser(
