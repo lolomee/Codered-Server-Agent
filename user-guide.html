@@ -744,7 +744,7 @@
       <div class="hero-meta">
         <div class="meta-chip"><span class="dot"></span> v1.0.0</div>
         <div class="meta-chip"><span class="dot" style="background:var(--cyan)"></span> Linux &amp; Windows</div>
-        <div class="meta-chip"><span class="dot" style="background:var(--yellow)"></span> Linux &amp; Windows</div>
+        <div class="meta-chip"><span class="dot" style="background:var(--yellow)"></span> CLI-managed</div>
       </div>
     </div>
 
@@ -1279,6 +1279,43 @@ systemctl list-units --type=service --state=active
 <span class="t-dim"># Re-run discovery</span>
 sudo codered-agent scan</pre>
       </div>
+
+      <h3>Windows — ExecutionPolicy error</h3>
+      <p>If you see <em>"cannot be loaded because running scripts is disabled"</em>, run these as <strong>two separate commands</strong>:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>Set-ExecutionPolicy Bypass -Scope Process -Force
+.\install-codered-agent.ps1</pre>
+      </div>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Do not put both commands on the same line — PowerShell will throw a <code>PositionalParameterNotFound</code> error. Run each line separately.</span>
+      </div>
+
+      <h3>Windows — Script not found error</h3>
+      <p>If you see <em>"is not recognized as the name of a cmdlet"</em>, PowerShell is running from the wrong directory. Navigate to where the script was downloaded first:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>cd $env:USERPROFILE\Downloads
+.\install-codered-agent.ps1</pre>
+      </div>
+
+      <h3>Windows — Antivirus blocking install</h3>
+      <p>If Bitdefender or Windows Defender blocks <code>iwr ... | iex</code>, download the script first and run it locally:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.ps1 -OutFile install-codered-agent.ps1
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\install-codered-agent.ps1</pre>
+      </div>
+
+      <h3>Windows — Python not found</h3>
+      <p>If <code>codered-agent setup</code> says Python was not found, install it first:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>winget install Python.Python.3.12 --accept-package-agreements</pre>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-dim)">Close and reopen PowerShell after installing Python, then retry <code>codered-agent setup</code>. Make sure <strong>Add Python to PATH</strong> was ticked during install.</p>
     </section>
 
     <!-- 10 Uninstalling -->
@@ -1287,25 +1324,68 @@ sudo codered-agent scan</pre>
         <span class="section-num">10</span>
         <h2>Uninstalling</h2>
       </div>
+      <p>Use the one-line uninstall scripts below, or follow the manual steps. Both methods fully clean up the agent, CLI, config files, and service.</p>
 
-      <h3>Linux</h3>
+      <h3>Linux — One-liner</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Stop service</span>
+        <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/uninstall-codered-agent.sh | sudo bash</pre>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-dim)">The script will ask for confirmation before removing anything. It stops the service, removes the package, deletes <code>/etc/codered</code>, removes the CLI binary, and cleans up the package repo.</p>
+
+      <h3>Linux — Manual steps</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Stop and disable service</span>
 sudo systemctl stop codered-agent
 sudo systemctl disable codered-agent
 
-<span class="t-dim"># Remove CodeRed Server Agent</span>
+<span class="t-dim"># Remove package</span>
 sudo apt-get remove --purge codered-agent   <span class="t-dim"># Debian/Ubuntu</span>
 sudo yum remove codered-agent               <span class="t-dim"># CentOS/RHEL</span>
 
 <span class="t-dim"># Remove CodeRed files</span>
 sudo rm -rf /etc/codered
-sudo rm -f /usr/local/bin/codered-agent</pre>
+sudo rm -f /usr/local/bin/codered-agent
+
+<span class="t-dim"># Remove repo source</span>
+sudo rm -f /etc/apt/sources.list.d/wazuh.list
+sudo rm -f /usr/share/keyrings/wazuh.gpg</pre>
       </div>
 
-      <h3>Windows</h3>
-      <p>Go to <strong>Control Panel → Programs → Uninstall a program</strong>, find <strong>CodeRed Server Agent</strong>, and uninstall. Then delete <code>C:\Program Files\CodeRed\</code> manually.</p>
+      <h3>Windows — One-liner</h3>
+      <p>Open <strong>PowerShell as Administrator</strong> and run:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>Set-ExecutionPolicy Bypass -Scope Process -Force
+iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/uninstall-codered-agent.ps1 -OutFile uninstall-codered-agent.ps1
+.\uninstall-codered-agent.ps1</pre>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-dim)">The script will confirm before proceeding. It stops the service, uninstalls via Windows registry, removes <code>C:\Program Files\CodeRed\</code>, and cleans up the system PATH.</p>
+
+      <h3>Windows — Manual steps</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Step 1 — Stop the service</span>
+Stop-Service -Name "Wazuh" -Force
+Set-Service -Name "Wazuh" -StartupType Disabled
+
+<span class="t-dim"># Step 2 — Uninstall via Programs</span>
+<span class="t-dim"># Win + R → appwiz.cpl → find CodeRed Server Agent → Uninstall</span>
+
+<span class="t-dim"># Step 3 — Remove leftover files</span>
+Remove-Item -Recurse -Force "C:\Program Files\CodeRed" -ErrorAction SilentlyContinue
+
+<span class="t-dim"># Step 4 — Clean PATH</span>
+$p = [Environment]::GetEnvironmentVariable("Path","Machine")
+$p = ($p -split ";" | Where-Object { $_ -notlike "*CodeRed*" }) -join ";"
+[Environment]::SetEnvironmentVariable("Path", $p, "Machine")</pre>
+      </div>
+
+      <div class="callout tip">
+        <span class="callout-icon">💡</span>
+        <span>After uninstalling, close and reopen PowerShell/Terminal to clear the old PATH entries from your current session.</span>
+      </div>
     </section>
 
     <footer class="footer">
