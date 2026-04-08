@@ -360,7 +360,7 @@ def inject_into_conf(selected: list):
     with open(AGENT_CONF, "w") as f:
         f.write(conf)
 
-# ── Interactive UI ────────────────────────────────────────────────────────────
+# ── Interactive UI (viewport-based — only renders visible items) ──────────────
 def present_ui(discovered: list, custom_logs: list) -> list:
     items = []
 
@@ -381,7 +381,7 @@ def present_ui(discovered: list, custom_logs: list) -> list:
             "path"    : path,
             "label"   : os.path.basename(path),
             "priority": "low",
-            "format"  : "eventchannel" if IS_WIN and not os.path.sep in path else "syslog",
+            "format"  : "eventchannel" if IS_WIN and os.path.sep not in path else "syslog",
             "reason"  : "Custom log detected on this system",
             "source"  : "file",
             "selected": False,
@@ -391,32 +391,64 @@ def present_ui(discovered: list, custom_logs: list) -> list:
         print(f"{YELLOW}  No logs found on this system.{RESET}")
         return []
 
-    cursor = 0
+    cursor     = 0
+    view_start = 0  # index of first visible item
+
+    def get_viewport_size() -> int:
+        """How many items fit on screen after header/footer."""
+        try:
+            rows = os.get_terminal_size().lines
+        except Exception:
+            rows = 24
+        # Reserve: 5 header lines + 3 footer lines + 2 per item (path + reason/blank)
+        return max(3, (rows - 8) // 2)
 
     def render():
-        clear_screen()
-        print(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}")
-        print(f"  {DIM}↑↓ move · Space toggle · A select all · N deselect all · Enter confirm · Q cancel{RESET}\n")
+        nonlocal view_start
+        viewport = get_viewport_size()
 
-        current_priority = None
-        for i, item in enumerate(items):
-            if item["priority"] != current_priority:
-                current_priority = item["priority"]
-                print(f"\n  {PRIORITY_LABELS[current_priority]}\n")
+        # Scroll view to keep cursor visible
+        if cursor < view_start:
+            view_start = cursor
+        elif cursor >= view_start + viewport:
+            view_start = cursor - viewport + 1
+
+        clear_screen()
+        total    = len(items)
+        selected = sum(1 for it in items if it["selected"])
+        view_end = min(view_start + viewport, total)
+
+        # Header
+        sys.stdout.write(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}\n")
+        sys.stdout.write(f"  {DIM}↑↓ move · Space toggle · A all · N none · Enter confirm · Q cancel{RESET}\n\n")
+
+        # Scroll indicator
+        if total > viewport:
+            sys.stdout.write(f"  {DIM}Showing {view_start+1}–{view_end} of {total} items{RESET}\n\n")
+
+        # Visible items only
+        prev_priority = None
+        for i in range(view_start, view_end):
+            item = items[i]
+
+            # Priority header — only show when priority changes within view
+            if item["priority"] != prev_priority:
+                prev_priority = item["priority"]
+                sys.stdout.write(f"\n  {PRIORITY_LABELS[item['priority']]}\n\n")
 
             tick  = f"{GREEN}✔{RESET}" if item["selected"] else f"{RED}✖{RESET}"
             arrow = f"{CYAN}▶{RESET}" if i == cursor else " "
-            src   = f"{DIM}(service detected){RESET}" if item["source"] == "service" else ""
+            src   = f"{DIM}(service){RESET}" if item["source"] == "service" else ""
             hi    = BOLD if i == cursor else ""
 
-            print(f"  {arrow} [{tick}] {hi}{item['path']}{RESET} {src}")
+            sys.stdout.write(f"  {arrow} [{tick}] {hi}{item['path']}{RESET} {src}\n")
             if i == cursor:
-                print(f"         {DIM}{item['reason']}{RESET}")
-            print()
+                sys.stdout.write(f"       {DIM}{item['reason']}{RESET}\n")
 
-        selected_count = sum(1 for it in items if it["selected"])
-        print(f"  {CYAN}──────────────────────────────────────────────────────{RESET}")
-        print(f"  {selected_count} log(s) selected for monitoring\n")
+        # Footer
+        sys.stdout.write(f"\n  {CYAN}{'─'*54}{RESET}\n")
+        sys.stdout.write(f"  {selected} of {total} log(s) selected\n")
+        sys.stdout.flush()
 
     render()
     while True:

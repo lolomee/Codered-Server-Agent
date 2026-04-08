@@ -307,17 +307,18 @@ def show_main_menu():
         banner("Management Console")
         svc = service_status()
         svc_col = GREEN if svc == "active" else RED
-        print(f"  Agent Service : {svc_col}{BOLD}{svc}{RESET}\n")
-        print(f"  {DIM}↑↓ move · Enter select · 1-5 shortcut{RESET}\n")
+        sys.stdout.write(f"  Agent Service : {svc_col}{BOLD}{svc}{RESET}\n\n")
+        sys.stdout.write(f"  {DIM}↑↓ move · Enter select · 1-5 shortcut{RESET}\n\n")
 
         for i, (key, label, desc) in enumerate(MENU_ITEMS):
             arrow = f"{CYAN}▶{RESET}" if i == cursor else " "
             num   = f"{DIM}[0]{RESET}" if key == "exit" else f"{CYAN}[{i+1}]{RESET}"
             hi    = BOLD if i == cursor else ""
-            print(f"  {arrow} {num} {hi}{label}{RESET}")
+            sys.stdout.write(f"  {arrow} {num} {hi}{label}{RESET}\n")
             if desc and i == cursor:
-                print(f"       {DIM}{desc}{RESET}")
-            print()
+                sys.stdout.write(f"       {DIM}{desc}{RESET}\n")
+            sys.stdout.write("\n")
+        sys.stdout.flush()
 
         ch = getch()
         if   ch == "UP"   and cursor > 0:                  cursor -= 1
@@ -363,22 +364,41 @@ def menu_setup():
     state   = load_state()
     enabled = set(state["enabled"])
     keys    = list(MODULES.keys())
-    cursor  = 0
+    cursor     = 0
+    view_start = 0
+
+    def get_viewport():
+        try:
+            rows = os.get_terminal_size().lines
+        except Exception:
+            rows = 24
+        return max(3, (rows - 10) // 2)
 
     def render():
+        nonlocal view_start
+        viewport = get_viewport()
+        if cursor < view_start:
+            view_start = cursor
+        elif cursor >= view_start + viewport:
+            view_start = cursor - viewport + 1
+        view_end = min(view_start + viewport, len(keys))
+
         banner("Module Setup")
-        print(f"  {DIM}↑↓ move · Space toggle · A all · N none · Enter save · Q back{RESET}\n")
-        for i, mid in enumerate(keys):
+        sys.stdout.write(f"  {DIM}↑↓ move · Space toggle · A all · N none · Enter save · Q back{RESET}\n\n")
+
+        for i in range(view_start, view_end):
+            mid   = keys[i]
             mod   = MODULES[mid]
             tick  = f"{GREEN}✔{RESET}" if mid in enabled else f"{RED}✖{RESET}"
             arrow = f"{CYAN}▶{RESET}" if i == cursor else " "
             hi    = BOLD if i == cursor else ""
-            print(f"  {arrow} [{tick}] {hi}{mod['label']}{RESET}")
+            sys.stdout.write(f"  {arrow} [{tick}] {hi}{mod['label']}{RESET}\n")
             if i == cursor:
-                print(f"       {DIM}{mod['desc']}{RESET}")
-            print()
-        print(f"  {DIM}──────────────────────────────────────{RESET}")
-        print(f"  {len(enabled)} module(s) enabled\n")
+                sys.stdout.write(f"       {DIM}{mod['desc']}{RESET}\n")
+
+        sys.stdout.write(f"\n  {DIM}──────────────────────────────────────{RESET}\n")
+        sys.stdout.write(f"  {len(enabled)} module(s) enabled\n")
+        sys.stdout.flush()
 
     render()
     while True:
