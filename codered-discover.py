@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 CodeRed Server Agent — Log Discovery Engine
-Scans the endpoint for log files, scores them by security relevance,
+Cross-platform: Windows + Linux
+Scans the endpoint for log files/event channels, scores by security relevance,
 and lets the customer pick which ones to monitor.
 """
 
@@ -10,11 +11,19 @@ import sys
 import json
 import subprocess
 import glob
+import shutil
 from pathlib import Path
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-OSSEC_CONF   = "/var/ossec/etc/ossec.conf"
-STATE_FILE   = "/etc/codered/state.json"
+IS_WIN = sys.platform == "win32"
+
+# ── Paths (cross-platform) ────────────────────────────────────────────────────
+if IS_WIN:
+    _base      = os.path.dirname(os.path.abspath(__file__))
+    AGENT_CONF = r"C:\Program Files (x86)\ossec-agent\ossec.conf"
+    STATE_FILE = os.path.join(_base, "state.json")
+else:
+    AGENT_CONF = "/var/ossec/etc/ossec.conf"
+    STATE_FILE = "/etc/codered/state.json"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED    = "\033[91m"
@@ -25,275 +34,7 @@ BOLD   = "\033[1m"
 DIM    = "\033[2m"
 RESET  = "\033[0m"
 
-# ── Known log catalogue ───────────────────────────────────────────────────────
-# Format:
-#   path        : exact path or glob pattern
-#   label       : human-readable name
-#   service     : associated service/package
-#   priority    : high / medium / low
-#   format      : wazuh log_format value
-#   reason      : why this matters (shown to customer)
-
-LOG_CATALOGUE = [
-    # ── System / Auth ─────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/auth.log",
-        "label": "Authentication Log",
-        "service": "ssh/sudo/pam",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "SSH logins, sudo usage, PAM auth failures — critical for intrusion detection",
-    },
-    {
-        "path": "/var/log/secure",
-        "label": "Secure Log (RHEL/CentOS)",
-        "service": "ssh/sudo/pam",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "SSH logins, sudo usage on RHEL/CentOS systems",
-    },
-    {
-        "path": "/var/log/syslog",
-        "label": "System Log",
-        "service": "system",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "General system events, daemon start/stop, kernel messages",
-    },
-    {
-        "path": "/var/log/messages",
-        "label": "System Messages (RHEL/CentOS)",
-        "service": "system",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "General system messages on RHEL/CentOS",
-    },
-    {
-        "path": "/var/log/kern.log",
-        "label": "Kernel Log",
-        "service": "kernel",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "Kernel events including OOM killer, hardware errors, network drops",
-    },
-    {
-        "path": "/var/log/dmesg",
-        "label": "Boot/Device Messages",
-        "service": "kernel",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Hardware and driver events during boot and runtime",
-    },
-    # ── Firewall ──────────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/ufw.log",
-        "label": "UFW Firewall Log",
-        "service": "ufw",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "Firewall block/allow events — detect port scans and blocked attacks",
-    },
-    {
-        "path": "/var/log/firewalld",
-        "label": "FirewallD Log",
-        "service": "firewalld",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "Firewall events on RHEL/CentOS systems",
-    },
-    {
-        "path": "/var/log/iptables.log",
-        "label": "iptables Log",
-        "service": "iptables",
-        "priority": "high",
-        "format": "syslog",
-        "reason": "Raw iptables packet drop/accept events",
-    },
-    # ── Intrusion Prevention ──────────────────────────────────────────────────
-    {
-        "path": "/var/log/fail2ban.log",
-        "label": "Fail2ban Log",
-        "service": "fail2ban",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Banned IPs and brute-force detection events",
-    },
-    # ── Web Servers ───────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/apache2/access.log",
-        "label": "Apache Access Log",
-        "service": "apache2",
-        "priority": "medium",
-        "format": "apache",
-        "reason": "HTTP requests — detect web attacks, scanning, path traversal",
-    },
-    {
-        "path": "/var/log/apache2/error.log",
-        "label": "Apache Error Log",
-        "service": "apache2",
-        "priority": "medium",
-        "format": "apache",
-        "reason": "Apache errors and warnings — detect misconfigurations and attacks",
-    },
-    {
-        "path": "/var/log/httpd/access_log",
-        "label": "Apache Access Log (RHEL)",
-        "service": "httpd",
-        "priority": "medium",
-        "format": "apache",
-        "reason": "HTTP requests on RHEL/CentOS Apache",
-    },
-    {
-        "path": "/var/log/httpd/error_log",
-        "label": "Apache Error Log (RHEL)",
-        "service": "httpd",
-        "priority": "medium",
-        "format": "apache",
-        "reason": "Apache errors on RHEL/CentOS",
-    },
-    {
-        "path": "/var/log/nginx/access.log",
-        "label": "Nginx Access Log",
-        "service": "nginx",
-        "priority": "medium",
-        "format": "nginx",
-        "reason": "HTTP requests — detect web attacks, scanning, path traversal",
-    },
-    {
-        "path": "/var/log/nginx/error.log",
-        "label": "Nginx Error Log",
-        "service": "nginx",
-        "priority": "medium",
-        "format": "nginx",
-        "reason": "Nginx errors — detect misconfigurations and upstream failures",
-    },
-    # ── Databases ─────────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/mysql/error.log",
-        "label": "MySQL Error Log",
-        "service": "mysql",
-        "priority": "medium",
-        "format": "mysql_log",
-        "reason": "MySQL errors — detect failed auth, connection floods",
-    },
-    {
-        "path": "/var/log/mariadb/mariadb.log",
-        "label": "MariaDB Log",
-        "service": "mariadb",
-        "priority": "medium",
-        "format": "mysql_log",
-        "reason": "MariaDB errors and auth events",
-    },
-    {
-        "path": "/var/log/postgresql/postgresql-*.log",
-        "label": "PostgreSQL Log",
-        "service": "postgresql",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "PostgreSQL auth failures and errors",
-    },
-    {
-        "path": "/var/log/mongodb/mongod.log",
-        "label": "MongoDB Log",
-        "service": "mongodb",
-        "priority": "medium",
-        "format": "json",
-        "reason": "MongoDB auth and connection events",
-    },
-    {
-        "path": "/var/log/redis/redis-server.log",
-        "label": "Redis Log",
-        "service": "redis",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Redis connection and auth events",
-    },
-    # ── Mail ──────────────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/mail.log",
-        "label": "Mail Log",
-        "service": "postfix/exim",
-        "priority": "low",
-        "format": "syslog",
-        "reason": "Mail delivery events — detect spam relay abuse",
-    },
-    {
-        "path": "/var/log/mail.err",
-        "label": "Mail Error Log",
-        "service": "postfix/exim",
-        "priority": "low",
-        "format": "syslog",
-        "reason": "Mail server errors",
-    },
-    # ── Cron ──────────────────────────────────────────────────────────────────
-    {
-        "path": "/var/log/cron.log",
-        "label": "Cron Log",
-        "service": "cron",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Scheduled job execution — detect persistence via cron",
-    },
-    {
-        "path": "/var/log/cron",
-        "label": "Cron Log (RHEL)",
-        "service": "cron",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Scheduled job execution on RHEL/CentOS",
-    },
-    # ── Docker / Containers ───────────────────────────────────────────────────
-    {
-        "path": "/var/log/docker.log",
-        "label": "Docker Daemon Log",
-        "service": "docker",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Docker daemon events — container starts, stops, errors",
-    },
-    # ── Application / Custom ──────────────────────────────────────────────────
-    {
-        "path": "/var/log/dpkg.log",
-        "label": "Package Manager Log (dpkg)",
-        "service": "dpkg",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Package installs/removals — detect unauthorized software changes",
-    },
-    {
-        "path": "/var/log/yum.log",
-        "label": "Package Manager Log (yum)",
-        "service": "yum",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Package installs/removals on RHEL/CentOS",
-    },
-    {
-        "path": "/var/log/dnf.log",
-        "label": "Package Manager Log (dnf)",
-        "service": "dnf",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "Package installs/removals — Fedora/RHEL 8+",
-    },
-    {
-        "path": "/var/log/audit/audit.log",
-        "label": "Linux Audit Log",
-        "service": "auditd",
-        "priority": "high",
-        "format": "audit",
-        "reason": "Kernel-level syscall auditing — detect privilege escalation, file access",
-    },
-    {
-        "path": "/var/log/wtmp",
-        "label": "Login Records (wtmp)",
-        "service": "system",
-        "priority": "medium",
-        "format": "syslog",
-        "reason": "User login/logout records",
-    },
-]
-
+# ── Priority helpers ──────────────────────────────────────────────────────────
 PRIORITY_ORDER  = {"high": 0, "medium": 1, "low": 2}
 PRIORITY_LABELS = {
     "high"  : f"{RED}🔴 HIGH PRIORITY{RESET}",
@@ -302,83 +43,296 @@ PRIORITY_LABELS = {
 }
 PRIORITY_DEFAULT = {"high": True, "medium": True, "low": False}
 
-# ── Service detection ─────────────────────────────────────────────────────────
+# ── Log catalogue — LINUX ─────────────────────────────────────────────────────
+LINUX_CATALOGUE = [
+    # System / Auth
+    {"path": "/var/log/auth.log",       "label": "Authentication Log",        "service": "ssh/sudo/pam", "priority": "high",   "format": "syslog",    "reason": "SSH logins, sudo usage, PAM auth failures"},
+    {"path": "/var/log/secure",         "label": "Secure Log (RHEL/CentOS)",  "service": "ssh/sudo/pam", "priority": "high",   "format": "syslog",    "reason": "SSH logins, sudo usage on RHEL/CentOS"},
+    {"path": "/var/log/syslog",         "label": "System Log",                "service": "system",       "priority": "high",   "format": "syslog",    "reason": "General system events, daemon start/stop"},
+    {"path": "/var/log/messages",       "label": "System Messages (RHEL)",    "service": "system",       "priority": "high",   "format": "syslog",    "reason": "General system messages on RHEL/CentOS"},
+    {"path": "/var/log/kern.log",       "label": "Kernel Log",                "service": "kernel",       "priority": "high",   "format": "syslog",    "reason": "Kernel events, OOM killer, hardware errors"},
+    {"path": "/var/log/audit/audit.log","label": "Linux Audit Log",           "service": "auditd",       "priority": "high",   "format": "audit",     "reason": "Kernel-level syscall auditing, privilege escalation"},
+    # Firewall
+    {"path": "/var/log/ufw.log",        "label": "UFW Firewall Log",          "service": "ufw",          "priority": "high",   "format": "syslog",    "reason": "Firewall block/allow events, port scans"},
+    {"path": "/var/log/iptables.log",   "label": "iptables Log",              "service": "iptables",     "priority": "high",   "format": "syslog",    "reason": "Raw iptables packet drop/accept events"},
+    {"path": "/var/log/firewalld",      "label": "FirewallD Log",             "service": "firewalld",    "priority": "high",   "format": "syslog",    "reason": "Firewall events on RHEL/CentOS"},
+    # Intrusion
+    {"path": "/var/log/fail2ban.log",   "label": "Fail2ban Log",              "service": "fail2ban",     "priority": "medium", "format": "syslog",    "reason": "Banned IPs and brute-force detection"},
+    # Web
+    {"path": "/var/log/apache2/access.log", "label": "Apache Access Log",     "service": "apache2",     "priority": "medium", "format": "apache",    "reason": "HTTP requests — detect web attacks, scanning"},
+    {"path": "/var/log/apache2/error.log",  "label": "Apache Error Log",      "service": "apache2",     "priority": "medium", "format": "apache",    "reason": "Apache errors — misconfigurations and attacks"},
+    {"path": "/var/log/httpd/access_log",   "label": "Apache Access (RHEL)",  "service": "httpd",       "priority": "medium", "format": "apache",    "reason": "HTTP requests on RHEL/CentOS Apache"},
+    {"path": "/var/log/httpd/error_log",    "label": "Apache Error (RHEL)",   "service": "httpd",       "priority": "medium", "format": "apache",    "reason": "Apache errors on RHEL/CentOS"},
+    {"path": "/var/log/nginx/access.log",   "label": "Nginx Access Log",      "service": "nginx",       "priority": "medium", "format": "nginx",     "reason": "HTTP requests — detect web attacks, scanning"},
+    {"path": "/var/log/nginx/error.log",    "label": "Nginx Error Log",       "service": "nginx",       "priority": "medium", "format": "nginx",     "reason": "Nginx errors and upstream failures"},
+    # Databases
+    {"path": "/var/log/mysql/error.log",    "label": "MySQL Error Log",       "service": "mysql",       "priority": "medium", "format": "mysql_log", "reason": "MySQL errors — failed auth, connection floods"},
+    {"path": "/var/log/mariadb/mariadb.log","label": "MariaDB Log",           "service": "mariadb",     "priority": "medium", "format": "mysql_log", "reason": "MariaDB errors and auth events"},
+    {"path": "/var/log/postgresql/postgresql-*.log","label": "PostgreSQL Log","service": "postgresql",  "priority": "medium", "format": "syslog",    "reason": "PostgreSQL auth failures and errors"},
+    {"path": "/var/log/mongodb/mongod.log", "label": "MongoDB Log",           "service": "mongodb",     "priority": "medium", "format": "json",      "reason": "MongoDB auth and connection events"},
+    {"path": "/var/log/redis/redis-server.log","label": "Redis Log",          "service": "redis",       "priority": "medium", "format": "syslog",    "reason": "Redis connection and auth events"},
+    # System utils
+    {"path": "/var/log/dpkg.log",       "label": "Package Manager (dpkg)",    "service": "dpkg",         "priority": "medium", "format": "syslog",    "reason": "Package installs/removals — detect unauthorized changes"},
+    {"path": "/var/log/yum.log",        "label": "Package Manager (yum)",     "service": "yum",          "priority": "medium", "format": "syslog",    "reason": "Package installs/removals on RHEL/CentOS"},
+    {"path": "/var/log/dnf.log",        "label": "Package Manager (dnf)",     "service": "dnf",          "priority": "medium", "format": "syslog",    "reason": "Package installs/removals on Fedora/RHEL 8+"},
+    {"path": "/var/log/cron.log",       "label": "Cron Log",                  "service": "cron",         "priority": "medium", "format": "syslog",    "reason": "Scheduled jobs — detect persistence via cron"},
+    {"path": "/var/log/cron",           "label": "Cron Log (RHEL)",           "service": "cron",         "priority": "medium", "format": "syslog",    "reason": "Scheduled jobs on RHEL/CentOS"},
+    # Mail
+    {"path": "/var/log/mail.log",       "label": "Mail Log",                  "service": "postfix/exim", "priority": "low",    "format": "syslog",    "reason": "Mail delivery — detect spam relay abuse"},
+    {"path": "/var/log/mail.err",       "label": "Mail Error Log",            "service": "postfix/exim", "priority": "low",    "format": "syslog",    "reason": "Mail server errors"},
+    {"path": "/var/log/dmesg",          "label": "Boot/Device Messages",      "service": "kernel",       "priority": "low",    "format": "syslog",    "reason": "Hardware and driver events during boot"},
+]
+
+# ── Log catalogue — WINDOWS ───────────────────────────────────────────────────
+WINDOWS_CATALOGUE = [
+    # Windows Event Log channels (format: eventchannel)
+    {"path": "Security",                             "label": "Security Event Log",              "service": "eventlog", "priority": "high",   "format": "eventchannel", "reason": "Logon/logoff, privilege use, account management, audit policy changes"},
+    {"path": "System",                               "label": "System Event Log",                "service": "eventlog", "priority": "high",   "format": "eventchannel", "reason": "Service start/stop, driver errors, system crashes"},
+    {"path": "Application",                          "label": "Application Event Log",           "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "Application errors, crashes, and warnings"},
+    {"path": "Microsoft-Windows-PowerShell/Operational","label": "PowerShell Operational Log",   "service": "eventlog", "priority": "high",   "format": "eventchannel", "reason": "PowerShell command execution — detect malicious scripts"},
+    {"path": "Microsoft-Windows-Sysmon/Operational", "label": "Sysmon Operational Log",         "service": "Sysmon",   "priority": "high",   "format": "eventchannel", "reason": "Process creation, network connections, registry changes (requires Sysmon)"},
+    {"path": "Microsoft-Windows-Windows Defender/Operational","label": "Windows Defender Log",  "service": "WinDefend","priority": "high",   "format": "eventchannel", "reason": "Malware detections and quarantine events"},
+    {"path": "Microsoft-Windows-TaskScheduler/Operational","label": "Task Scheduler Log",       "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "Scheduled task creation/modification — detect persistence"},
+    {"path": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational","label": "RDP Session Log","service": "eventlog","priority": "high","format": "eventchannel","reason": "RDP logon/logoff events — detect remote access"},
+    {"path": "Microsoft-Windows-Bits-Client/Operational","label": "BITS Client Log",            "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "Background file transfers — detect data exfiltration"},
+    {"path": "Microsoft-Windows-WMI-Activity/Operational","label": "WMI Activity Log",          "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "WMI activity — detect lateral movement and persistence"},
+    {"path": "Microsoft-Windows-DNSClient/Operational","label": "DNS Client Log",               "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "DNS queries — detect C2 communication and tunneling"},
+    {"path": "Microsoft-Windows-Firewall With Advanced Security/Firewall","label": "Windows Firewall Log","service": "eventlog","priority": "high","format": "eventchannel","reason": "Firewall rule changes and blocked connections"},
+    # File-based logs on Windows
+    {"path": r"C:\inetpub\logs\LogFiles\W3SVC1\*.log",  "label": "IIS Web Server Log",   "service": "W3SVC",  "priority": "medium", "format": "iis",     "reason": "IIS HTTP requests — detect web attacks and scanning"},
+    {"path": r"C:\Windows\System32\LogFiles\Firewall\pfirewall.log","label": "Windows Firewall File Log","service": "eventlog","priority": "medium","format": "syslog","reason": "Firewall packet log (if enabled)"},
+]
+
+LOG_CATALOGUE = WINDOWS_CATALOGUE if IS_WIN else LINUX_CATALOGUE
+
+# ── Service / package detection ───────────────────────────────────────────────
 def get_active_services() -> set:
-    """Return set of active systemd service names."""
-    try:
-        out = subprocess.check_output(
-            ["systemctl", "list-units", "--type=service", "--state=active",
-             "--no-pager", "--plain", "--no-legend"],
-            stderr=subprocess.DEVNULL, text=True
-        )
-        return {line.split()[0].replace(".service", "") for line in out.splitlines() if line.strip()}
-    except Exception:
-        return set()
+    services = set()
+    if IS_WIN:
+        try:
+            r = subprocess.check_output(
+                ["sc", "query", "type=", "all", "state=", "all"],
+                stderr=subprocess.DEVNULL, text=True
+            )
+            for line in r.splitlines():
+                if "SERVICE_NAME:" in line:
+                    services.add(line.split(":")[-1].strip().lower())
+        except Exception:
+            pass
+    else:
+        try:
+            out = subprocess.check_output(
+                ["systemctl", "list-units", "--type=service", "--state=active",
+                 "--no-pager", "--plain", "--no-legend"],
+                stderr=subprocess.DEVNULL, text=True
+            )
+            services = {line.split()[0].replace(".service", "") for line in out.splitlines() if line.strip()}
+        except Exception:
+            pass
+    return services
 
 
 def get_installed_packages() -> set:
-    """Return set of installed package names."""
     pkgs = set()
-    for cmd in [["dpkg", "--get-selections"], ["rpm", "-qa", "--qf", "%{NAME}\n"]]:
+    if IS_WIN:
+        # Query installed software from registry via wmic
         try:
-            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True)
-            pkgs.update(line.split()[0] for line in out.splitlines() if line.strip())
+            out = subprocess.check_output(
+                ["wmic", "product", "get", "name"],
+                stderr=subprocess.DEVNULL, text=True
+            )
+            pkgs = {line.strip().lower() for line in out.splitlines() if line.strip() and line.strip() != "Name"}
         except Exception:
-            continue
+            pass
+        # Also check common service names
+        try:
+            r = subprocess.check_output(
+                ["sc", "query", "type=", "all", "state=", "all"],
+                stderr=subprocess.DEVNULL, text=True
+            )
+            for line in r.splitlines():
+                if "SERVICE_NAME:" in line:
+                    pkgs.add(line.split(":")[-1].strip().lower())
+        except Exception:
+            pass
+    else:
+        for cmd in [["dpkg", "--get-selections"], ["rpm", "-qa", "--qf", "%{NAME}\n"]]:
+            try:
+                out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True)
+                pkgs.update(line.split()[0] for line in out.splitlines() if line.strip())
+            except Exception:
+                continue
     return pkgs
+
+
+def check_win_event_channel(channel: str) -> bool:
+    """Check if a Windows Event Log channel exists and has events."""
+    try:
+        r = subprocess.run(
+            ["wevtutil", "gl", channel],
+            capture_output=True, text=True
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def check_win_service_exists(svc: str) -> bool:
+    """Check if a Windows service exists."""
+    try:
+        r = subprocess.run(["sc", "query", svc], capture_output=True, text=True)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
 def discover_logs(active_services: set, installed_packages: set) -> list:
-    """
-    Scan each catalogue entry.
-    Returns list of dicts with 'entry' and 'found_paths'.
-    """
     results = []
     for entry in LOG_CATALOGUE:
-        pattern  = entry["path"]
-        # Resolve glob
-        matches  = [p for p in glob.glob(pattern) if os.path.isfile(p)]
-        # Also check exact path
-        if not matches and os.path.isfile(pattern):
-            matches = [pattern]
+        path = entry["path"]
+        fmt  = entry["format"]
 
-        if matches:
-            results.append({"entry": entry, "found_paths": matches, "source": "file"})
-            continue
+        if IS_WIN:
+            if fmt == "eventchannel":
+                # Check Windows Event Log channel via wevtutil
+                exists = check_win_event_channel(path)
+                svc    = entry["service"].lower()
+                svc_ok = check_win_service_exists(entry["service"]) if entry["service"] != "eventlog" else True
+                if exists or svc_ok:
+                    results.append({"entry": entry, "found_paths": [path],
+                                    "source": "file" if exists else "service"})
+            else:
+                # File-based log on Windows
+                matches = [p for p in glob.glob(path) if os.path.isfile(p)]
+                if not matches and os.path.isfile(path):
+                    matches = [path]
+                if matches:
+                    results.append({"entry": entry, "found_paths": matches, "source": "file"})
+                elif entry["service"].lower() in active_services:
+                    results.append({"entry": entry, "found_paths": [path], "source": "service"})
+        else:
+            matches = [p for p in glob.glob(path) if os.path.isfile(p)]
+            if not matches and os.path.isfile(path):
+                matches = [path]
+            if matches:
+                results.append({"entry": entry, "found_paths": matches, "source": "file"})
+                continue
+            svc = entry["service"].split("/")[0]
+            if svc in active_services or svc in installed_packages:
+                results.append({"entry": entry, "found_paths": [path], "source": "service"})
 
-        # Service/package heuristic — if service is running, flag even if log not yet created
-        svc = entry["service"].split("/")[0]
-        if svc in active_services or svc in installed_packages:
-            results.append({"entry": entry, "found_paths": [pattern], "source": "service"})
-
-    # Sort by priority
     results.sort(key=lambda r: PRIORITY_ORDER[r["entry"]["priority"]])
     return results
 
 
 def scan_custom_logs() -> list:
-    """Find any .log files under /var/log not in catalogue."""
-    known = {e["path"] for e in LOG_CATALOGUE}
-    custom = []
-    for root, dirs, files in os.walk("/var/log"):
-        # Skip noisy dirs
-        dirs[:] = [d for d in dirs if d not in ("journal",)]
-        for f in files:
-            if f.endswith(".log") or f.endswith(".err"):
-                full = os.path.join(root, f)
-                if full not in known and os.path.getsize(full) > 0:
-                    custom.append(full)
-    return sorted(custom)
+    """Find additional log files not in the catalogue."""
+    if IS_WIN:
+        known   = {e["path"] for e in LOG_CATALOGUE}
+        custom  = []
+        search_dirs = [
+            r"C:\inetpub\logs",
+            r"C:\Program Files",
+            r"C:\ProgramData",
+        ]
+        for base in search_dirs:
+            if not os.path.exists(base):
+                continue
+            for root, dirs, files in os.walk(base):
+                # Limit depth
+                depth = root.replace(base, "").count(os.sep)
+                if depth > 3:
+                    dirs.clear()
+                    continue
+                for f in files:
+                    if f.endswith(".log") or f.endswith(".txt"):
+                        full = os.path.join(root, f)
+                        try:
+                            if full not in known and os.path.getsize(full) > 0:
+                                custom.append(full)
+                        except Exception:
+                            continue
+        return sorted(custom[:50])  # cap at 50 custom logs on Windows
+    else:
+        known  = {e["path"] for e in LOG_CATALOGUE}
+        custom = []
+        for root, dirs, files in os.walk("/var/log"):
+            dirs[:] = [d for d in dirs if d not in ("journal",)]
+            for f in files:
+                if f.endswith(".log") or f.endswith(".err"):
+                    full = os.path.join(root, f)
+                    try:
+                        if full not in known and os.path.getsize(full) > 0:
+                            custom.append(full)
+                    except Exception:
+                        continue
+        return sorted(custom)
+
+# ── Cross-platform keyboard input ─────────────────────────────────────────────
+def getch():
+    if IS_WIN:
+        import msvcrt
+        ch = msvcrt.getwch()
+        if ch in ('\x00', '\xe0'):
+            ch2 = msvcrt.getwch()
+            if ch2 == 'H': return "UP"
+            if ch2 == 'P': return "DOWN"
+            return ''
+        return ch
+    else:
+        import tty, termios
+        fd  = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                sys.stdin.read(1)
+                arrow = sys.stdin.read(1)
+                if arrow == "A": return "UP"
+                if arrow == "B": return "DOWN"
+                return ''
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+def clear_screen():
+    os.system("cls" if IS_WIN else "clear")
+
+# ── ossec.conf injection ──────────────────────────────────────────────────────
+def inject_into_conf(selected: list):
+    if not os.path.exists(AGENT_CONF):
+        print(f"{YELLOW}  Agent config not found at {AGENT_CONF}. Skipping.{RESET}")
+        return
+
+    with open(AGENT_CONF) as f:
+        conf = f.read()
+
+    # Remove previous discovery block
+    start_tag = "<!-- CodeRed Discovered Logs -->"
+    end_tag   = "<!-- END:discovered-logs -->"
+    s = conf.find(start_tag)
+    e = conf.find(end_tag)
+    if s != -1 and e != -1:
+        conf = conf[:s] + conf[e + len(end_tag):]
+
+    # Build new block
+    lines = [f"  {start_tag}"]
+    for item in selected:
+        lines.append(f"  <localfile>\n    <log_format>{item['format']}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
+    lines.append(f"  {end_tag}")
+    block = "\n".join(lines)
+
+    conf = conf.replace("</ossec_config>", block + "\n</ossec_config>")
+
+    shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+    with open(AGENT_CONF, "w") as f:
+        f.write(conf)
 
 # ── Interactive UI ────────────────────────────────────────────────────────────
 def present_ui(discovered: list, custom_logs: list) -> list:
-    """
-    Interactive checklist. Returns list of selected log paths.
-    """
-    import tty, termios
-
-    # Build item list
     items = []
+
     for r in discovered:
         for path in r["found_paths"]:
             items.append({
@@ -396,7 +350,7 @@ def present_ui(discovered: list, custom_logs: list) -> list:
             "path"    : path,
             "label"   : os.path.basename(path),
             "priority": "low",
-            "format"  : "syslog",
+            "format"  : "eventchannel" if IS_WIN and not os.path.sep in path else "syslog",
             "reason"  : "Custom log detected on this system",
             "source"  : "file",
             "selected": False,
@@ -409,13 +363,12 @@ def present_ui(discovered: list, custom_logs: list) -> list:
     cursor = 0
 
     def render():
-        os.system("clear")
+        clear_screen()
         print(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}")
-        print(f"  {DIM}↑↓ move · Space toggle · A select all · N deselect all · Enter confirm{RESET}\n")
+        print(f"  {DIM}↑↓ move · Space toggle · A select all · N deselect all · Enter confirm · Q cancel{RESET}\n")
 
         current_priority = None
         for i, item in enumerate(items):
-            # Print priority header
             if item["priority"] != current_priority:
                 current_priority = item["priority"]
                 print(f"\n  {PRIORITY_LABELS[current_priority]}\n")
@@ -434,99 +387,40 @@ def present_ui(discovered: list, custom_logs: list) -> list:
         print(f"  {CYAN}──────────────────────────────────────────────────────{RESET}")
         print(f"  {selected_count} log(s) selected for monitoring\n")
 
-    def getch():
-        fd  = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            return sys.stdin.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
     render()
     while True:
         ch = getch()
-        if ch == "\x1b":
-            getch()
-            arrow = getch()
-            if arrow == "A" and cursor > 0:
-                cursor -= 1
-            elif arrow == "B" and cursor < len(items) - 1:
-                cursor += 1
+        if   ch == "UP"   and cursor > 0:              cursor -= 1
+        elif ch == "DOWN" and cursor < len(items) - 1: cursor += 1
         elif ch == " ":
             items[cursor]["selected"] = not items[cursor]["selected"]
         elif ch.lower() == "a":
-            for it in items:
-                it["selected"] = True
+            for it in items: it["selected"] = True
         elif ch.lower() == "n":
-            for it in items:
-                it["selected"] = False
+            for it in items: it["selected"] = False
         elif ch in ("\r", "\n"):
             break
         elif ch == "q":
             print("\n  Cancelled.")
-            sys.exit(0)
+            return []
         render()
 
     return [it for it in items if it["selected"]]
 
-# ── ossec.conf injection ──────────────────────────────────────────────────────
-def build_localfile_block(selected: list) -> str:
-    lines = ["  <!-- CodeRed Discovered Logs -->"]
-    for item in selected:
-        lines.append(f"""  <localfile>
-    <log_format>{item['format']}</log_format>
-    <location>{item['path']}</location>
-  </localfile>""")
-    return "\n".join(lines)
-
-
-def inject_into_ossec(selected: list):
-    if not os.path.exists(OSSEC_CONF):
-        print(f"{YELLOW}  ossec.conf not found at {OSSEC_CONF}. Skipping injection.{RESET}")
-        return
-
-    with open(OSSEC_CONF) as f:
-        conf = f.read()
-
-    # Remove previous discovery block
-    start_tag = "<!-- CodeRed Discovered Logs -->"
-    end_tag   = "<!-- END:discovered-logs -->"
-    s = conf.find(start_tag)
-    e = conf.find(end_tag)
-    if s != -1 and e != -1:
-        conf = conf[:s] + conf[e + len(end_tag):]
-
-    block = build_localfile_block(selected) + "\n  " + end_tag
-    conf  = conf.replace("</ossec_config>", block + "\n</ossec_config>")
-
-    import shutil
-    shutil.copy2(OSSEC_CONF, OSSEC_CONF + ".bak")
-    with open(OSSEC_CONF, "w") as f:
-        f.write(conf)
-
-
-def restart_agent():
-    r = subprocess.run(["systemctl", "restart", "wazuh-agent"],
-                       capture_output=True, text=True)
-    if r.returncode == 0:
-        print(f"{GREEN}  ✔ Agent restarted.{RESET}")
-    else:
-        print(f"{YELLOW}  Could not restart agent: {r.stderr.strip()}{RESET}")
-
 # ── Main entrypoint ───────────────────────────────────────────────────────────
 def run_discovery(auto_apply=False):
     print(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}")
-    print(f"  Scanning endpoint...\n")
+    platform_label = "Windows" if IS_WIN else "Linux"
+    print(f"  Scanning {platform_label} endpoint...\n")
 
-    active_svc  = get_active_services()
-    installed   = get_installed_packages()
+    active_svc = get_active_services()
+    installed  = get_installed_packages()
 
     print(f"  {GREEN}✔{RESET} Active services detected : {len(active_svc)}")
     print(f"  {GREEN}✔{RESET} Installed packages       : {len(installed)}")
 
-    discovered  = discover_logs(active_svc, installed)
-    custom      = scan_custom_logs()
+    discovered = discover_logs(active_svc, installed)
+    custom     = scan_custom_logs()
 
     print(f"  {GREEN}✔{RESET} Known logs found         : {len(discovered)}")
     print(f"  {GREEN}✔{RESET} Custom logs found        : {len(custom)}")
@@ -541,22 +435,42 @@ def run_discovery(auto_apply=False):
         return
 
     print(f"\n{CYAN}  Applying {len(selected)} log source(s) to agent config...{RESET}")
-    inject_into_ossec(selected)
-    print(f"{GREEN}  ✔ ossec.conf updated.{RESET}")
+    inject_into_conf(selected)
+    print(f"{GREEN}  ✔ Agent config updated.{RESET}")
+
+    if not auto_apply:
+        ans = input(f"\n  Restart agent now to apply changes? (y/N): ").strip().lower()
+        auto_apply = ans == "y"
 
     if auto_apply:
-        restart_agent()
-    else:
-        ans = input(f"\n  Restart agent now to apply changes? (y/N): ").strip().lower()
-        if ans == "y":
-            restart_agent()
+        print(f"{CYAN}  Restarting agent...{RESET}")
+        try:
+            if IS_WIN:
+                subprocess.run(["sc", "stop",  "WazuhSvc"], capture_output=True)
+                import time; time.sleep(2)
+                subprocess.run(["sc", "start", "WazuhSvc"], capture_output=True)
+            else:
+                subprocess.run(["systemctl", "restart", "wazuh-agent"], check=True)
+            print(f"{GREEN}  ✔ Agent restarted.{RESET}")
+        except Exception as e:
+            print(f"{YELLOW}  Could not restart agent: {e}{RESET}")
 
     print(f"\n{GREEN}{BOLD}  Log discovery complete!{RESET}")
-    print(f"  {len(selected)} log source(s) now monitored by CodeRed Agent.\n")
+    print(f"  {len(selected)} log source(s) now monitored.\n")
 
 
 if __name__ == "__main__":
-    if os.geteuid() != 0:
-        print(f"{RED}Please run as root (sudo){RESET}")
-        sys.exit(1)
+    # Admin check
+    try:
+        if IS_WIN:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                print(f"{RED}Please run as Administrator.{RESET}")
+                sys.exit(1)
+        else:
+            if os.geteuid() != 0:
+                print(f"{RED}Please run as root (sudo).{RESET}")
+                sys.exit(1)
+    except Exception:
+        pass
     run_discovery()
