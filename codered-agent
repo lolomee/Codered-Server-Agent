@@ -18,12 +18,12 @@ if sys.platform == "win32":
     _base         = os.path.dirname(os.path.abspath(__file__))
     AGENT_CONF    = r"C:\Program Files (x86)\ossec-agent\ossec.conf"
     STATE_FILE    = os.path.join(_base, "state.json")
-    TEMPLATES_DIR = os.path.join(_base, "templates")
+    TEMPLATES_DIR = os.path.join(_base, "templates", "windows")
     DISCOVER_PATH = os.path.join(_base, "codered-discover.py")
 else:
     AGENT_CONF    = "/var/ossec/etc/ossec.conf"
     STATE_FILE    = "/etc/codered/state.json"
-    TEMPLATES_DIR = "/etc/codered/templates"
+    TEMPLATES_DIR = "/etc/codered/templates/linux"
     DISCOVER_PATH = "/etc/codered/codered-discover.py"
 
 # ── Service name (lazy detection) ────────────────────────────────────────────

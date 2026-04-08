@@ -1,0 +1,20 @@
+  <!-- File Integrity Monitoring Module — Windows -->
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>43200</frequency>
+    <scan_on_start>yes</scan_on_start>
+    <alert_new_files>yes</alert_new_files>
+
+    <!-- Directories to monitor -->
+    <directories check_all="yes" report_changes="yes" realtime="yes">%WINDIR%\System32\drivers\etc</directories>
+    <directories check_all="yes" report_changes="yes" realtime="yes">%WINDIR%\System32\wbem</directories>
+    <directories check_all="yes" report_changes="yes">%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\Startup</directories>
+    <directories check_all="yes" report_changes="yes">%WINDIR%\System32\Tasks</directories>
+
+    <!-- Ignore volatile/noisy paths -->
+    <ignore>%WINDIR%\System32\LogFiles</ignore>
+    <ignore>%WINDIR%\Temp</ignore>
+    <ignore type="sregex">.log$|.htm$|.jpg$|.png$|.chm$|.pnf$|.evtx$</ignore>
+
+    <hash_algorithm>sha256</hash_algorithm>
+  </syscheck>

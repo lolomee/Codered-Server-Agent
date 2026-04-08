@@ -1,0 +1,19 @@
+  <!-- Threat Detection Module — Windows -->
+  <rootcheck>
+    <disabled>no</disabled>
+    <windows_audit>./shared/win_audit_rcl.txt</windows_audit>
+    <windows_apps>./shared/win_applications_rcl.txt</windows_apps>
+    <windows_malware>./shared/win_malware_rcl.txt</windows_malware>
+    <frequency>43200</frequency>
+    <skip_nfs>yes</skip_nfs>
+  </rootcheck>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-Windows Firewall With Advanced Security/Firewall</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-WMI-Activity/Operational</location>
+  </localfile>

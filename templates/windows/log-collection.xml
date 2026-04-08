@@ -1,0 +1,35 @@
+  <!-- Log Collection Module — Windows -->
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Security</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>System</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Application</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-PowerShell/Operational</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-Windows Defender/Operational</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-TerminalServices-LocalSessionManager/Operational</location>
+  </localfile>
+
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-TaskScheduler/Operational</location>
+  </localfile>

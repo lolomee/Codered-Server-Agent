@@ -1,0 +1,14 @@
+  <!-- Active Response Module — Windows -->
+  <active-response>
+    <disabled>no</disabled>
+    <ca_store>wpk_root.pem</ca_store>
+    <ca_verification>yes</ca_verification>
+  </active-response>
+
+  <!-- Block IP on brute force (RDP/SMB) -->
+  <active-response>
+    <command>netsh</command>
+    <location>local</location>
+    <rules_id>60204</rules_id>
+    <timeout>300</timeout>
+  </active-response>

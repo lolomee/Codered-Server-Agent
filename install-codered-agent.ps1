@@ -12,7 +12,7 @@ param(
 
 $REPO_BASE     = "https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main"
 $INSTALL_DIR   = "C:\Program Files\CodeRed\Agent"
-$TEMPLATES_DIR = "$INSTALL_DIR\templates"
+$TEMPLATES_DIR = "$INSTALL_DIR\templates\windows"
 $CLI_SCRIPT    = "$INSTALL_DIR\codered-agent.py"
 $CLI_WRAPPER   = "$INSTALL_DIR\codered-agent.cmd"
 $WAZUH_MSI_URL = "https://packages.wazuh.com/4.x/windows/wazuh-agent-${AgentVersion}-1.msi"
@@ -125,7 +125,7 @@ if ($currentPath -notlike "*$INSTALL_DIR*") {
 Write-Step "Downloading module templates..."
 $templates = @("log-collection", "fim", "inventory", "threat", "vuln", "compliance", "active-response")
 foreach ($tmpl in $templates) {
-    Invoke-WebRequest -Uri "$REPO_BASE/templates/$tmpl.xml" `
+    Invoke-WebRequest -Uri "$REPO_BASE/templates/windows/$tmpl.xml" `
         -OutFile "$TEMPLATES_DIR\$tmpl.xml" -UseBasicParsing
 }
 Write-Ok "Templates installed."

@@ -8,7 +8,7 @@ set -e
 MANAGER_IP="${CODERED_MANAGER_IP:-}"
 INSTALL_DIR="/etc/codered"
 CLI_BIN="/usr/local/bin/codered-agent"
-TEMPLATES_DST="/etc/codered/templates"
+TEMPLATES_DST="/etc/codered/templates/linux"
 REPO_BASE="https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"; CYAN="\033[96m"; BOLD="\033[1m"; RESET="\033[0m"
