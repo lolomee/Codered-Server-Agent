@@ -1360,7 +1360,7 @@ sudo codered-agent restart</pre>
         <span class="dir">/etc/codered/</span><br>
         &nbsp;&nbsp;├── <span class="file">state.json</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← enabled module state</span><br>
         &nbsp;&nbsp;├── <span class="file">codered-discover.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← log discovery engine</span><br>
-        &nbsp;&nbsp;└── <span class="dir">templates/</span><br>
+        &nbsp;&nbsp;└── <span class="dir">templates/linux/</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← Linux-specific module configs</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">log-collection.xml</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">fim.xml</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">inventory.xml</span><br>
@@ -1369,11 +1369,11 @@ sudo codered-agent restart</pre>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">compliance.xml</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">active-response.xml</span><br>
         <br>
-        <span class="dir">/etc/codered/agent/</span><br>
+        <span class="dir">/var/ossec/</span><br>
         &nbsp;&nbsp;├── <span class="dir">etc/</span><br>
-        &nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">codered-agent.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
+        &nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
         &nbsp;&nbsp;└── <span class="dir">logs/</span><br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">codered-agent.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
       </div>
 
       <h3>Windows</h3>
@@ -1382,9 +1382,25 @@ sudo codered-agent restart</pre>
         &nbsp;&nbsp;├── <span class="file">codered-agent.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI script</span><br>
         &nbsp;&nbsp;├── <span class="file">codered-agent.cmd</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← CLI wrapper (run from anywhere)</span><br>
         &nbsp;&nbsp;├── <span class="file">codered-discover.py</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← log discovery engine</span><br>
-        &nbsp;&nbsp;├── <span class="dir">templates\</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← module config snippets</span><br>
+        &nbsp;&nbsp;├── <span class="file">state.json</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← enabled module state</span><br>
+        &nbsp;&nbsp;└── <span class="dir">templates\windows\</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← Windows-specific module configs</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">log-collection.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">fim.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">inventory.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">threat.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">vuln.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="file">compliance.xml</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">active-response.xml</span><br>
+        <br>
+        <span class="dir">C:\Program Files (x86)\ossec-agent\</span><br>
+        &nbsp;&nbsp;├── <span class="file">ossec.conf</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← active agent config (managed by CLI)</span><br>
         &nbsp;&nbsp;└── <span class="dir">logs\</span><br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">codered-agent.log</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← agent operational log</span>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">ossec.log</span>
+      </div>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Module templates are OS-specific. <code>templates/linux/</code> uses Linux log formats (<code>syslog</code>, <code>apache</code>, <code>nginx</code>, <code>audit</code>) and Linux paths. <code>templates/windows/</code> uses Windows-only formats (<code>eventchannel</code>, <code>iis</code>) and Windows paths. The CLI automatically picks the correct folder for your OS.</span>
       </div>
     </section>
 
@@ -1399,21 +1415,21 @@ sudo codered-agent restart</pre>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre><span class="t-dim"># Verify manager IP</span>
-grep "&lt;address&gt;" /etc/codered/agent/etc/codered-agent.conf
+grep "&lt;address&gt;" /var/ossec/etc/ossec.conf
 
 <span class="t-dim"># Test connectivity</span>
 nc -zv &lt;manager-ip&gt; 1514
 nc -zv &lt;manager-ip&gt; 1515
 
 <span class="t-dim"># Check agent log</span>
-tail -f /etc/codered/agent/logs/codered-agent.log</pre>
+tail -f /var/ossec/logs/ossec.log</pre>
       </div>
 
       <h3>Agent service not starting</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>systemctl status codered-agent
-journalctl -u codered-agent -n 50
+        <pre>systemctl status wazuh-agent
+journalctl -u wazuh-agent -n 50
 sudo codered-agent restart</pre>
       </div>
 
@@ -1428,7 +1444,7 @@ sudo codered-agent restart</pre>
       <p>A backup is created automatically before every change:</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>sudo cp /etc/codered/agent/etc/codered-agent.conf.bak /etc/codered/agent/etc/codered-agent.conf
+        <pre>sudo cp /var/ossec/etc/ossec.conf.bak /var/ossec/etc/ossec.conf
 sudo codered-agent restart</pre>
       </div>
 

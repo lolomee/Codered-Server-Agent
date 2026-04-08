@@ -1,4 +1,4 @@
-  <!-- Threat Detection Module -->
+  <!-- Threat Detection Module — Linux -->
   <rootcheck>
     <disabled>no</disabled>
     <check_unixaudit>yes</check_unixaudit>
@@ -14,13 +14,3 @@
     <rootkit_trojans>etc/shared/rootkit_trojans.txt</rootkit_trojans>
     <skip_nfs>yes</skip_nfs>
   </rootcheck>
-
-  <wodle name="command">
-    <disabled>no</disabled>
-    <tag>codered-threat-check</tag>
-    <command>/var/ossec/active-response/bin/check-threats.sh</command>
-    <interval>10m</interval>
-    <ignore_output>no</ignore_output>
-    <run_on_start>yes</run_on_start>
-    <timeout>60</timeout>
-  </wodle>
