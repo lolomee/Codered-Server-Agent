@@ -99,8 +99,7 @@ WINDOWS_CATALOGUE = [
     {"path": "Microsoft-Windows-DNSClient/Operational","label": "DNS Client Log",               "service": "eventlog", "priority": "medium", "format": "eventchannel", "reason": "DNS queries — detect C2 communication and tunneling"},
     {"path": "Microsoft-Windows-Firewall With Advanced Security/Firewall","label": "Windows Firewall Log","service": "eventlog","priority": "high","format": "eventchannel","reason": "Firewall rule changes and blocked connections"},
     # File-based logs on Windows
-    {"path": r"C:\inetpub\logs\LogFiles\W3SVC1\*.log",  "label": "IIS Web Server Log",   "service": "W3SVC",  "priority": "medium", "format": "iis",     "reason": "IIS HTTP requests — detect web attacks and scanning"},
-    {"path": r"C:\Windows\System32\LogFiles\Firewall\pfirewall.log","label": "Windows Firewall File Log","service": "eventlog","priority": "medium","format": "syslog","reason": "Firewall packet log (if enabled)"},
+    {"path": r"C:\inetpub\logs\LogFiles\W3SVC1\*.log", "label": "IIS Web Server Log", "service": "W3SVC", "priority": "medium", "format": "iis", "reason": "IIS HTTP requests — detect web attacks and scanning"},
 ]
 
 LOG_CATALOGUE = WINDOWS_CATALOGUE if IS_WIN else LINUX_CATALOGUE
