@@ -20,13 +20,43 @@ if sys.platform == "win32":
     STATE_FILE    = os.path.join(_base, "state.json")
     TEMPLATES_DIR = os.path.join(_base, "templates")
     DISCOVER_PATH = os.path.join(_base, "codered-discover.py")
-    SVC_NAME      = "Wazuh"
 else:
     AGENT_CONF    = "/var/ossec/etc/ossec.conf"
     STATE_FILE    = "/etc/codered/state.json"
     TEMPLATES_DIR = "/etc/codered/templates"
     DISCOVER_PATH = "/etc/codered/codered-discover.py"
-    SVC_NAME      = "wazuh-agent"
+
+# ── Service name auto-detection ───────────────────────────────────────────────
+def detect_service_name() -> str:
+    """Auto-detect the agent service name on this system."""
+    if sys.platform == "win32":
+        candidates = ["WazuhSvc", "Wazuh", "wazuh", "OssecSvc"]
+        for name in candidates:
+            r = subprocess.run(["sc", "query", name],
+                               capture_output=True, text=True)
+            if r.returncode == 0:
+                return name
+        # Fallback: search all services for wazuh
+        r = subprocess.run(
+            ["sc", "query", "type=", "all", "state=", "all"],
+            capture_output=True, text=True
+        )
+        for line in r.stdout.splitlines():
+            if "wazuh" in line.lower() or "ossec" in line.lower():
+                parts = line.strip().split()
+                if parts:
+                    return parts[-1]
+        return "WazuhSvc"  # last resort default
+    else:
+        candidates = ["wazuh-agent", "ossec"]
+        for name in candidates:
+            r = subprocess.run(["systemctl", "is-active", name],
+                               capture_output=True, text=True)
+            if r.returncode in (0, 3):  # 0=active, 3=inactive but exists
+                return name
+        return "wazuh-agent"
+
+SVC_NAME = detect_service_name()
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED    = "\033[91m"
@@ -205,15 +235,26 @@ def service_status() -> str:
         return "unknown"
 
 def restart_agent():
-    print(f"\n{CYAN}  Restarting CodeRed Agent...{RESET}")
+    print(f"\n{CYAN}  Restarting CodeRed Agent (service: {SVC_NAME})...{RESET}")
     try:
         if sys.platform == "win32":
-            subprocess.run(f"sc stop {SVC_NAME} && sc start {SVC_NAME}", shell=True, check=True)
+            stop = subprocess.run(["sc", "stop", SVC_NAME],
+                                  capture_output=True, text=True)
+            import time; time.sleep(2)
+            start = subprocess.run(["sc", "start", SVC_NAME],
+                                   capture_output=True, text=True)
+            if start.returncode == 0:
+                print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
+            else:
+                print(f"{YELLOW}  Agent service not running yet — starting...{RESET}")
+                subprocess.run(["sc", "start", SVC_NAME], capture_output=True)
+                print(f"{GREEN}  ✔ Agent start command sent.{RESET}")
         else:
             subprocess.run(["systemctl", "restart", SVC_NAME], check=True)
-        print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
-    except subprocess.CalledProcessError:
-        print(f"{RED}  ✖ Failed to restart agent.{RESET}")
+            print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
+    except subprocess.CalledProcessError as e:
+        print(f"{RED}  ✖ Failed to restart agent: {e}{RESET}")
+        print(f"{YELLOW}  Try manually: sc start {SVC_NAME}{RESET}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ── MAIN MENU ─────────────────────────────────────────────────────────────────
