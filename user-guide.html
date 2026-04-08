@@ -1235,7 +1235,7 @@ sudo codered-agent restart</pre>
         <span class="section-num">07</span>
         <h2>Log Discovery</h2>
       </div>
-      <p>The log discovery engine (<code>codered-discover.py</code>) is the most important first step. It ensures you monitor the logs that matter for your specific environment.</p>
+      <p>The log discovery engine automatically detects your OS and scans for relevant logs and event channels. It covers both Linux log files and Windows Event Log channels out of the box.</p>
 
       <h3>How It Works</h3>
       <div class="steps">
@@ -1243,28 +1243,34 @@ sudo codered-agent restart</pre>
           <div class="step-num">1</div>
           <div class="step-body">
             <div class="step-title">Service Detection</div>
-            <p style="margin:0; font-size:13px; color:var(--text-dim);">Queries <code>systemctl</code> for all active services and <code>dpkg</code>/<code>rpm</code> for installed packages.</p>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">
+              <strong>Linux:</strong> queries <code>systemctl</code> and <code>dpkg</code>/<code>rpm</code>.<br>
+              <strong>Windows:</strong> queries <code>sc query</code> and <code>wmic product get</code>.
+            </p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-body">
-            <div class="step-title">Log File Scan</div>
-            <p style="margin:0; font-size:13px; color:var(--text-dim);">Checks 30+ known log paths, resolves globs, and scans <code>/var/log</code> for any custom <code>.log</code> files.</p>
+            <div class="step-title">Log Source Scan</div>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">
+              <strong>Linux:</strong> checks 28+ known log paths under <code>/var/log</code> and scans for custom <code>.log</code> files.<br>
+              <strong>Windows:</strong> verifies 12 Event Log channels via <code>wevtutil</code> and scans <code>C:\inetpub\logs</code> for IIS and custom logs.
+            </p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">3</div>
           <div class="step-body">
             <div class="step-title">Priority Scoring</div>
-            <p style="margin:0; font-size:13px; color:var(--text-dim);">Assigns High / Medium / Low priority based on security relevance. High and Medium are selected by default.</p>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Each source is scored High / Medium / Low by security relevance. High and Medium are pre-selected by default.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">4</div>
           <div class="step-body">
             <div class="step-title">Config Injection</div>
-            <p style="margin:0; font-size:13px; color:var(--text-dim);">Writes selected paths as <code>&lt;localfile&gt;</code> blocks into <code>codered-agent.conf</code> and restarts the agent.</p>
+            <p style="margin:0; font-size:13px; color:var(--text-dim);">Selected sources are written as <code>&lt;localfile&gt;</code> blocks into the agent config and the agent is restarted.</p>
           </div>
         </div>
       </div>
@@ -1272,18 +1278,70 @@ sudo codered-agent restart</pre>
       <h3>Priority Levels</h3>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Priority</th><th>Examples</th><th>Auto-selected</th></tr></thead>
+          <thead><tr><th>Priority</th><th>Auto-selected</th></tr></thead>
           <tbody>
-            <tr><td><span style="color:var(--red)">🔴 High</span></td><td>auth.log, syslog, audit.log, ufw.log, kern.log</td><td>Yes</td></tr>
-            <tr><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>nginx/access.log, mysql/error.log, cron.log, dpkg.log</td><td>Yes</td></tr>
-            <tr><td><span style="color:var(--green)">🟢 Low</span></td><td>mail.log, dmesg</td><td>No</td></tr>
+            <tr><td><span style="color:var(--red)">🔴 High</span></td><td>Yes</td></tr>
+            <tr><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Yes</td></tr>
+            <tr><td><span style="color:var(--green)">🟢 Low</span></td><td>No</td></tr>
           </tbody>
         </table>
       </div>
 
+      <h3>Linux — Log Catalogue</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Log Path</th><th>Priority</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>/var/log/auth.log</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>SSH logins, sudo usage, PAM auth failures</td></tr>
+            <tr><td><code>/var/log/secure</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Auth log on RHEL/CentOS</td></tr>
+            <tr><td><code>/var/log/syslog</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>General system events</td></tr>
+            <tr><td><code>/var/log/kern.log</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Kernel events, hardware errors</td></tr>
+            <tr><td><code>/var/log/audit/audit.log</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Syscall auditing, privilege escalation</td></tr>
+            <tr><td><code>/var/log/ufw.log</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Firewall block/allow events</td></tr>
+            <tr><td><code>/var/log/iptables.log</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Raw iptables packet events</td></tr>
+            <tr><td><code>/var/log/nginx/access.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Nginx HTTP requests</td></tr>
+            <tr><td><code>/var/log/apache2/access.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Apache HTTP requests</td></tr>
+            <tr><td><code>/var/log/mysql/error.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>MySQL errors and auth failures</td></tr>
+            <tr><td><code>/var/log/postgresql/*.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>PostgreSQL auth and errors</td></tr>
+            <tr><td><code>/var/log/mongodb/mongod.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>MongoDB auth events</td></tr>
+            <tr><td><code>/var/log/fail2ban.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Banned IPs, brute-force events</td></tr>
+            <tr><td><code>/var/log/dpkg.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Package installs/removals</td></tr>
+            <tr><td><code>/var/log/cron.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Cron job execution</td></tr>
+            <tr><td><code>/var/log/mail.log</code></td><td><span style="color:var(--green)">🟢 Low</span></td><td>Mail delivery events</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Windows — Event Log Catalogue</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Event Channel</th><th>Priority</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>Security</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Logon/logoff, privilege use, account management</td></tr>
+            <tr><td><code>System</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Service crashes, driver errors, system events</td></tr>
+            <tr><td><code>PowerShell/Operational</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>PowerShell execution — detect malicious scripts</td></tr>
+            <tr><td><code>Sysmon/Operational</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Process creation, network connections, registry (requires Sysmon)</td></tr>
+            <tr><td><code>Windows Defender/Operational</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Malware detections and quarantine events</td></tr>
+            <tr><td><code>TerminalServices/Operational</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>RDP logon/logoff — detect remote access</td></tr>
+            <tr><td><code>Firewall/Operational</code></td><td><span style="color:var(--red)">🔴 High</span></td><td>Firewall rule changes and blocked connections</td></tr>
+            <tr><td><code>Application</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Application errors, crashes, and warnings</td></tr>
+            <tr><td><code>TaskScheduler/Operational</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Scheduled task changes — detect persistence</td></tr>
+            <tr><td><code>Bits-Client/Operational</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>Background transfers — detect data exfiltration</td></tr>
+            <tr><td><code>WMI-Activity/Operational</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>WMI activity — detect lateral movement</td></tr>
+            <tr><td><code>DNSClient/Operational</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>DNS queries — detect C2 and tunneling</td></tr>
+            <tr><td><code>C:\inetpub\logs\*.log</code></td><td><span style="color:var(--yellow)">🟡 Medium</span></td><td>IIS web server access logs</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout tip">
+        <span class="callout-icon">💡</span>
+        <span>Re-run the scan from the main menu (<kbd>1</kbd>) whenever you install new services or applications. The previous discovery config is automatically replaced with your new selection.</span>
+      </div>
+
       <div class="callout info">
         <span class="callout-icon">ℹ️</span>
-        <span>Re-run <code>sudo codered-agent scan</code> whenever you install new services. The previous discovery configuration is automatically replaced.</span>
+        <span><strong>Sysmon tip:</strong> On Windows, install <a href="https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon" style="color:var(--cyan)">Microsoft Sysmon</a> before running the scan to unlock the highest-fidelity endpoint telemetry including process creation, network connections, and registry changes.</span>
       </div>
     </section>
 
