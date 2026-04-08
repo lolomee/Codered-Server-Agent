@@ -273,11 +273,31 @@ def getch():
     if IS_WIN:
         import msvcrt
         ch = msvcrt.getwch()
+
+        # Classic Windows console: extended key prefix \x00 or \xe0
         if ch in ('\x00', '\xe0'):
             ch2 = msvcrt.getwch()
             if ch2 == 'H': return "UP"
             if ch2 == 'P': return "DOWN"
+            if ch2 == 'K': return "LEFT"
+            if ch2 == 'M': return "RIGHT"
             return ''
+
+        # Windows Terminal sends ANSI escape sequences — handle \x1b[A/B
+        if ch == '\x1b':
+            # Try to read next chars non-blocking
+            try:
+                next1 = msvcrt.getwch()  # expect '['
+                if next1 == '[':
+                    next2 = msvcrt.getwch()
+                    if next2 == 'A': return "UP"
+                    if next2 == 'B': return "DOWN"
+                    if next2 == 'C': return "RIGHT"
+                    if next2 == 'D': return "LEFT"
+            except Exception:
+                pass
+            return '\x1b'
+
         return ch
     else:
         import tty, termios

@@ -130,11 +130,26 @@ def getch():
     if sys.platform == "win32":
         import msvcrt
         ch = msvcrt.getwch()
+
+        # Classic Windows console: extended key prefix
         if ch in ('\x00', '\xe0'):
             ch2 = msvcrt.getwch()
             if ch2 == 'H': return "UP"
             if ch2 == 'P': return "DOWN"
             return ''
+
+        # Windows Terminal: sends ANSI escape sequences
+        if ch == '\x1b':
+            try:
+                next1 = msvcrt.getwch()
+                if next1 == '[':
+                    next2 = msvcrt.getwch()
+                    if next2 == 'A': return "UP"
+                    if next2 == 'B': return "DOWN"
+            except Exception:
+                pass
+            return '\x1b'
+
         return ch
     else:
         import tty, termios
