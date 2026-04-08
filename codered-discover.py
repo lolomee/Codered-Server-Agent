@@ -330,6 +330,17 @@ def clear_screen():
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
+# Valid log_format values supported by Wazuh agent on each OS
+VALID_FORMATS_WIN   = {"eventchannel", "eventlog", "syslog", "full_command", "command", "iis"}
+VALID_FORMATS_LINUX = {"syslog", "apache", "nginx", "mysql_log", "audit", "json",
+                       "full_command", "command", "eventchannel", "iis", "multi-line"}
+
+def safe_format(fmt: str) -> str:
+    """Return a valid log_format for the current OS, falling back to syslog."""
+    if IS_WIN:
+        return fmt if fmt in VALID_FORMATS_WIN else "syslog"
+    return fmt if fmt in VALID_FORMATS_LINUX else "syslog"
+
 # ── ossec.conf injection ──────────────────────────────────────────────────────
 def inject_into_conf(selected: list):
     if not os.path.exists(AGENT_CONF):
@@ -347,10 +358,16 @@ def inject_into_conf(selected: list):
     if s != -1 and e != -1:
         conf = conf[:s] + conf[e + len(end_tag):]
 
-    # Build new block
+    # Build new block — normalise format per OS
     lines = [f"  {start_tag}"]
     for item in selected:
-        lines.append(f"  <localfile>\n    <log_format>{item['format']}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
+        fmt = safe_format(item["format"])
+        lines.append(
+            f"  <localfile>\n"
+            f"    <log_format>{fmt}</log_format>\n"
+            f"    <location>{item['path']}</location>\n"
+            f"  </localfile>"
+        )
     lines.append(f"  {end_tag}")
     block = "\n".join(lines)
 
