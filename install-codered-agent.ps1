@@ -73,8 +73,8 @@ if (-not $python) {
     Write-Ok "Python found: $pyVersion"
 }
 
-# ── Download Wazuh MSI ────────────────────────────────────────────────────────
-Write-Step "Downloading Wazuh agent installer..."
+# ── Download CodeRed MSI ──────────────────────────────────────────────────────
+Write-Step "Downloading CodeRed Agent installer..."
 try {
     Invoke-WebRequest -Uri $WAZUH_MSI_URL -OutFile $INSTALLER -UseBasicParsing
     Write-Ok "Downloaded installer."
@@ -82,8 +82,8 @@ try {
     Write-Error2 "Failed to download installer: $_"
 }
 
-# ── Install Wazuh agent ───────────────────────────────────────────────────────
-Write-Step "Installing Wazuh agent (silent)..."
+# ── Install agent ─────────────────────────────────────────────────────────────
+Write-Step "Installing CodeRed Agent (silent)..."
 $msiArgs = @(
     "/i", $INSTALLER,
     "/q",
@@ -95,15 +95,19 @@ $proc = Start-Process msiexec -ArgumentList $msiArgs -Wait -PassThru
 if ($proc.ExitCode -ne 0) {
     Write-Error2 "MSI install failed with exit code: $($proc.ExitCode)"
 }
-Write-Ok "Wazuh agent installed."
+Write-Ok "CodeRed Agent installed."
 
 # ── Create CodeRed directories ────────────────────────────────────────────────
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR   | Out-Null
 New-Item -ItemType Directory -Force -Path $TEMPLATES_DIR | Out-Null
 
-# ── Download CLI and templates ────────────────────────────────────────────────
+# ── Download CLI, discover engine and templates ───────────────────────────────
 Write-Step "Installing CodeRed CLI..."
 Invoke-WebRequest -Uri "$REPO_BASE/codered-agent" -OutFile $CLI_SCRIPT -UseBasicParsing
+
+Write-Step "Installing log discovery engine..."
+Invoke-WebRequest -Uri "$REPO_BASE/codered-discover.py" -OutFile "$INSTALL_DIR\codered-discover.py" -UseBasicParsing
+Write-Ok "Log discovery engine installed."
 
 # Create .cmd wrapper so `codered-agent` works from anywhere
 @"

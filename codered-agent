@@ -335,21 +335,25 @@ def cmd_restart(_args):
 # ── Scan (Log Discovery) ──────────────────────────────────────────────────────
 def cmd_scan(_args):
     try:
-        import importlib.util, pathlib
-        # Try to load codered-discover.py (hyphen in name needs special import)
-        discover_path = None
+        import importlib.util
+
+        _script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Search paths — Linux and Windows
         search_paths = [
-            "/etc/codered/codered-discover.py",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "codered-discover.py"),
+            os.path.join(_script_dir, "codered-discover.py"),                         # same dir as CLI (Windows)
+            r"C:\Program Files\CodeRed\Agent\codered-discover.py",                     # Windows install dir
+            "/etc/codered/codered-discover.py",                                        # Linux
         ]
-        for p in search_paths:
-            if os.path.exists(p):
-                discover_path = p
-                break
+
+        discover_path = next((p for p in search_paths if os.path.exists(p)), None)
 
         if not discover_path:
             print(f"{RED}  codered-discover.py not found.{RESET}")
-            print(f"  Expected at /etc/codered/codered-discover.py")
+            print(f"  Searched:")
+            for p in search_paths:
+                print(f"    - {p}")
+            print(f"\n  Re-run the installer to restore missing files.")
             sys.exit(1)
 
         spec   = importlib.util.spec_from_file_location("codered_discover", discover_path)
