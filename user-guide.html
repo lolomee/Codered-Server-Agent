@@ -826,37 +826,66 @@
         <h2>Installation</h2>
       </div>
 
-      <h3>Linux</h3>
-      <p>Run the one-line installer as root. You will be prompted for your CodeRed Manager IP if not set.</p>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Use the <strong>Linux installer</strong> (<code>.sh</code>) on Linux systems only. Use the <strong>Windows installer</strong> (<code>.ps1</code>) on Windows. They are not interchangeable.</span>
+      </div>
 
+      <!-- Linux -->
+      <h3>Linux (Ubuntu / Debian / CentOS / RHEL)</h3>
+      <p>Open a terminal and run as root. You will be prompted for your CodeRed Manager IP.</p>
       <div class="code-block">
-        <div class="code-header">
-          <span class="code-lang">bash</span>
-          <button class="copy-btn" onclick="copyCode(this)">copy</button>
-        </div>
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh | sudo bash</pre>
       </div>
 
-      <p>To pass the Manager IP directly for silent/scripted deployments:</p>
+      <p>To pass the Manager IP directly (for scripted/silent deployments):</p>
       <div class="code-block">
-        <div class="code-header">
-          <span class="code-lang">bash</span>
-          <button class="copy-btn" onclick="copyCode(this)">copy</button>
-        </div>
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>CODERED_MANAGER_IP=<span class="t-yellow">10.0.0.1</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
       </div>
+      <p style="font-size:12.5px;color:var(--text-dim)">The installer will: detect your distro → add CodeRed package repo → install agent → install <code>codered-agent</code> CLI → download templates and log discovery engine → start service → prompt for log scan.</p>
 
-      <p style="font-size:12.5px; color:var(--text-dim); margin-top:8px;">The installer will: detect your distro → add CodeRed package repository → install agent → install <code>codered-agent</code> CLI → download module templates and log discovery engine → start service → prompt for log scan.</p>
+      <!-- Windows -->
+      <h3>Windows (Server 2016+ / Windows 10+)</h3>
+      <p>Open <strong>PowerShell as Administrator</strong> and run each line separately:</p>
 
-      <h3>Windows</h3>
-      <p>Open <strong>PowerShell as Administrator</strong> and run:</p>
       <div class="code-block">
-        <div class="code-header">
-          <span class="code-lang">powershell</span>
-          <button class="copy-btn" onclick="copyCode(this)">copy</button>
-        </div>
+        <div class="code-header"><span class="code-lang">powershell — step 1: download</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.ps1 -OutFile install-codered-agent.ps1</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell — step 2: run</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>Set-ExecutionPolicy Bypass -Scope Process -Force
-iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.ps1 | iex</pre>
+.\install-codered-agent.ps1</pre>
+      </div>
+
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Do <strong>not</strong> use <code>curl</code> on Windows — it is an alias for <code>Invoke-WebRequest</code> and behaves differently. Do <strong>not</strong> pipe directly with <code>| iex</code> as antivirus software (Bitdefender, Defender) may block it. Always download the script first with <code>iwr ... -OutFile</code>, then run it locally.</span>
+      </div>
+
+      <p style="font-size:12.5px;color:var(--text-dim)">The installer will: check for Python (auto-installs if missing) → download the agent MSI → install silently → install <code>codered-agent</code> CLI → download templates → start service → prompt for log scan.</p>
+
+      <!-- Quick reference table -->
+      <h3>Quick Reference</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>OS</th><th>Script</th><th>How to run</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Linux</td>
+              <td><code>install-codered-agent.sh</code></td>
+              <td><code>curl -s ... | sudo bash</code></td>
+            </tr>
+            <tr>
+              <td>Windows</td>
+              <td><code>install-codered-agent.ps1</code></td>
+              <td><code>iwr ... -OutFile script.ps1</code> then <code>.\script.ps1</code></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
