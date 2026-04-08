@@ -53,6 +53,26 @@ if (-not $ManagerIP) {
 Write-Step "Manager: $ManagerIP"
 Write-Step "Agent name: $AgentName"
 
+# ── Check / install Python ────────────────────────────────────────────────────
+Write-Step "Checking Python..."
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) {
+    Write-Warn "Python not found. Installing Python 3.12 via winget..."
+    try {
+        winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+        # Refresh PATH in current session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Write-Ok "Python installed."
+    } catch {
+        Write-Warn "winget install failed. Please install Python manually from https://python.org/downloads"
+        Write-Warn "Make sure to tick 'Add Python to PATH' during installation, then re-run this script."
+        exit 1
+    }
+} else {
+    $pyVersion = python --version 2>&1
+    Write-Ok "Python found: $pyVersion"
+}
+
 # ── Download Wazuh MSI ────────────────────────────────────────────────────────
 Write-Step "Downloading Wazuh agent installer..."
 try {
