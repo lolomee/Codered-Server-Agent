@@ -26,17 +26,21 @@ else:
     TEMPLATES_DIR = "/etc/codered/templates"
     DISCOVER_PATH = "/etc/codered/codered-discover.py"
 
-# ── Service name auto-detection ───────────────────────────────────────────────
-def detect_service_name() -> str:
-    """Auto-detect the agent service name on this system."""
+# ── Service name (lazy detection) ────────────────────────────────────────────
+_SVC_NAME = None
+
+def get_svc_name() -> str:
+    global _SVC_NAME
+    if _SVC_NAME:
+        return _SVC_NAME
     if sys.platform == "win32":
         candidates = ["WazuhSvc", "Wazuh", "wazuh", "OssecSvc"]
         for name in candidates:
             r = subprocess.run(["sc", "query", name],
                                capture_output=True, text=True)
             if r.returncode == 0:
-                return name
-        # Fallback: search all services for wazuh
+                _SVC_NAME = name
+                return _SVC_NAME
         r = subprocess.run(
             ["sc", "query", "type=", "all", "state=", "all"],
             capture_output=True, text=True
@@ -45,18 +49,18 @@ def detect_service_name() -> str:
             if "wazuh" in line.lower() or "ossec" in line.lower():
                 parts = line.strip().split()
                 if parts:
-                    return parts[-1]
-        return "WazuhSvc"  # last resort default
+                    _SVC_NAME = parts[-1]
+                    return _SVC_NAME
+        _SVC_NAME = "WazuhSvc"
     else:
-        candidates = ["wazuh-agent", "ossec"]
-        for name in candidates:
+        for name in ["wazuh-agent", "ossec"]:
             r = subprocess.run(["systemctl", "is-active", name],
                                capture_output=True, text=True)
-            if r.returncode in (0, 3):  # 0=active, 3=inactive but exists
-                return name
-        return "wazuh-agent"
-
-SVC_NAME = detect_service_name()
+            if r.returncode in (0, 3):
+                _SVC_NAME = name
+                return _SVC_NAME
+        _SVC_NAME = "wazuh-agent"
+    return _SVC_NAME
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED    = "\033[91m"
@@ -241,35 +245,38 @@ def apply_state(state: dict):
 def service_status() -> str:
     try:
         if sys.platform == "win32":
-            r = subprocess.run(["sc", "query", SVC_NAME], capture_output=True, text=True)
+            r = subprocess.run(["sc", "query", get_svc_name()], capture_output=True, text=True)
             return "active" if "RUNNING" in r.stdout else "inactive"
         else:
-            r = subprocess.run(["systemctl", "is-active", SVC_NAME], capture_output=True, text=True)
+            r = subprocess.run(["systemctl", "is-active", get_svc_name()], capture_output=True, text=True)
             return r.stdout.strip()
     except Exception:
         return "unknown"
 
 def restart_agent():
-    print(f"\n{CYAN}  Restarting CodeRed Agent (service: {SVC_NAME})...{RESET}")
+    print(f"\n{CYAN}  Restarting CodeRed Agent (service: {get_svc_name()})...{RESET}")
     try:
         if sys.platform == "win32":
-            stop = subprocess.run(["sc", "stop", SVC_NAME],
+            stop = subprocess.run(["sc", "stop", get_svc_name()],
                                   capture_output=True, text=True)
             import time; time.sleep(2)
-            start = subprocess.run(["sc", "start", SVC_NAME],
+            start = subprocess.run(["sc", "start", get_svc_name()],
                                    capture_output=True, text=True)
             if start.returncode == 0:
                 print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
             else:
                 print(f"{YELLOW}  Agent service not running yet — starting...{RESET}")
-                subprocess.run(["sc", "start", SVC_NAME], capture_output=True)
+                subprocess.run(["sc", "start", get_svc_name()], capture_output=True)
                 print(f"{GREEN}  ✔ Agent start command sent.{RESET}")
         else:
-            subprocess.run(["systemctl", "restart", SVC_NAME], check=True)
+            subprocess.run(["systemctl", "restart", get_svc_name()], check=True)
             print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
     except subprocess.CalledProcessError as e:
         print(f"{RED}  ✖ Failed to restart agent: {e}{RESET}")
-        print(f"{YELLOW}  Try manually: sc start {SVC_NAME}{RESET}")
+        if sys.platform == "win32":
+            print(f"{YELLOW}  Try manually: sc start {get_svc_name()}{RESET}")
+        else:
+            print(f"{YELLOW}  Try manually: systemctl start {get_svc_name()}{RESET}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ── MAIN MENU ─────────────────────────────────────────────────────────────────
@@ -491,9 +498,9 @@ def menu_uninstall():
     print(f"\n{CYAN}  Stopping agent service...{RESET}")
     try:
         if sys.platform == "win32":
-            subprocess.run(["sc", "stop", SVC_NAME], capture_output=True)
+            subprocess.run(["sc", "stop", get_svc_name()], capture_output=True)
         else:
-            subprocess.run(["systemctl", "stop", SVC_NAME], capture_output=True)
+            subprocess.run(["systemctl", "stop", get_svc_name()], capture_output=True)
         print(f"{GREEN}  ✔ Service stopped.{RESET}")
     except Exception:
         print(f"{YELLOW}  Service was not running.{RESET}")
@@ -505,16 +512,21 @@ def menu_uninstall():
             shell=True, capture_output=True
         )
     else:
+        removed = False
         for cmd in [
             ["apt-get", "remove", "--purge", "-y", "wazuh-agent"],
-            ["yum", "remove", "-y", "wazuh-agent"],
+            ["dnf",     "remove", "-y", "wazuh-agent"],
+            ["yum",     "remove", "-y", "wazuh-agent"],
         ]:
             try:
                 r = subprocess.run(cmd, capture_output=True)
                 if r.returncode == 0:
+                    removed = True
                     break
-            except Exception:
+            except FileNotFoundError:
                 continue
+        if not removed:
+            print(f"{YELLOW}  Could not remove package automatically. Remove manually.{RESET}")
 
     print(f"{CYAN}  Removing CodeRed files...{RESET}")
     if sys.platform != "win32":

@@ -466,9 +466,14 @@ def run_discovery(auto_apply=False):
         print(f"{CYAN}  Restarting agent...{RESET}")
         try:
             if IS_WIN:
-                subprocess.run(["sc", "stop",  "WazuhSvc"], capture_output=True)
-                import time; time.sleep(2)
-                subprocess.run(["sc", "start", "WazuhSvc"], capture_output=True)
+                # Try common Windows service names
+                for svc in ["WazuhSvc", "Wazuh", "wazuh"]:
+                    r = subprocess.run(["sc", "query", svc], capture_output=True, text=True)
+                    if r.returncode == 0:
+                        subprocess.run(["sc", "stop",  svc], capture_output=True)
+                        import time; time.sleep(2)
+                        subprocess.run(["sc", "start", svc], capture_output=True)
+                        break
             else:
                 subprocess.run(["systemctl", "restart", "wazuh-agent"], check=True)
             print(f"{GREEN}  ✔ Agent restarted.{RESET}")

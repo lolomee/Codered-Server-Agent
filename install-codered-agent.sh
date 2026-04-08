@@ -1,12 +1,11 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # CodeRed Server Agent — Linux Installer
-# Supports: Ubuntu 20.04/22.04, Debian 11/12, CentOS/RHEL 8/9
+# Supports: Ubuntu 20.04/22.04, Debian 11/12, CentOS/RHEL 8/9, Fedora
 # ─────────────────────────────────────────────────────────────────────────────
 set -e
 
 MANAGER_IP="${CODERED_MANAGER_IP:-}"
-AGENT_VERSION="4.7.3"
 INSTALL_DIR="/etc/codered"
 CLI_BIN="/usr/local/bin/codered-agent"
 TEMPLATES_DST="/etc/codered/templates"
@@ -36,6 +35,24 @@ die()  { echo -e "${RED}[✖]${RESET} $*"; exit 1; }
 
 banner
 
+# ── Dependency check ──────────────────────────────────────────────────────────
+log "Checking dependencies..."
+for dep in curl gpg python3; do
+  if ! command -v "$dep" &>/dev/null; then
+    warn "$dep not found — installing..."
+    if command -v apt-get &>/dev/null; then
+      apt-get install -y "$dep" -qq
+    elif command -v yum &>/dev/null; then
+      yum install -y "$dep" -q
+    elif command -v dnf &>/dev/null; then
+      dnf install -y "$dep" -q
+    else
+      die "Cannot install $dep — please install it manually and re-run."
+    fi
+  fi
+done
+ok "All dependencies satisfied."
+
 # ── Prompt for Manager IP if not set ─────────────────────────────────────────
 if [[ -z "$MANAGER_IP" ]]; then
   echo -e "${BOLD}  Enter your CodeRed Manager IP or hostname:${RESET}"
@@ -59,8 +76,8 @@ detect_os() {
 detect_os
 log "Detected OS: ${OS_ID} ${OS_VERSION}"
 
-# ── Install Wazuh agent ───────────────────────────────────────────────────────
-install_wazuh_deb() {
+# ── Install agent ─────────────────────────────────────────────────────────────
+install_deb() {
   log "Adding Wazuh repository (apt)..."
   curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH \
     | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
@@ -73,7 +90,7 @@ https://packages.wazuh.com/4.x/apt/ stable main" \
   WAZUH_MANAGER="${MANAGER_IP}" apt-get install -y wazuh-agent
 }
 
-install_wazuh_rpm() {
+install_rpm() {
   log "Adding Wazuh repository (rpm)..."
   rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 
@@ -87,24 +104,38 @@ baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
 
-  WAZUH_MANAGER="${MANAGER_IP}" yum install -y wazuh-agent
+  if command -v dnf &>/dev/null; then
+    WAZUH_MANAGER="${MANAGER_IP}" dnf install -y wazuh-agent
+  else
+    WAZUH_MANAGER="${MANAGER_IP}" yum install -y wazuh-agent
+  fi
 }
 
 case "$OS_ID" in
   ubuntu|debian)
-    install_wazuh_deb ;;
+    install_deb ;;
   centos|rhel|rocky|almalinux|fedora)
-    install_wazuh_rpm ;;
+    install_rpm ;;
   *)
-    die "Unsupported OS: ${OS_ID}. Supported: Ubuntu, Debian, CentOS, RHEL, Rocky, AlmaLinux." ;;
+    die "Unsupported OS: ${OS_ID}. Supported: Ubuntu, Debian, CentOS, RHEL, Rocky, AlmaLinux, Fedora." ;;
 esac
 
-ok "Wazuh agent installed."
+ok "Agent installed."
 
-# ── Set manager IP in ossec.conf ──────────────────────────────────────────────
-log "Configuring manager IP..."
-sed -i "s|MANAGER_IP|${MANAGER_IP}|g" /var/ossec/etc/ossec.conf
-ok "Manager IP configured."
+# ── Configure manager IP ──────────────────────────────────────────────────────
+log "Configuring manager IP in ossec.conf..."
+OSSEC_CONF="/var/ossec/etc/ossec.conf"
+if [[ -f "$OSSEC_CONF" ]]; then
+  # Replace existing <address> tag if present, otherwise replace placeholder
+  if grep -q "<address>" "$OSSEC_CONF"; then
+    sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
+  else
+    sed -i "s|MANAGER_IP|${MANAGER_IP}|g" "$OSSEC_CONF"
+  fi
+  ok "Manager IP set to ${MANAGER_IP}"
+else
+  warn "ossec.conf not found at ${OSSEC_CONF} — skipping IP configuration."
+fi
 
 # ── Install CodeRed CLI ───────────────────────────────────────────────────────
 log "Installing CodeRed CLI..."
@@ -112,8 +143,9 @@ mkdir -p "${INSTALL_DIR}" "${TEMPLATES_DST}"
 
 curl -fsSL "${REPO_BASE}/codered-agent" -o "${CLI_BIN}"
 chmod +x "${CLI_BIN}"
+ok "CLI installed to ${CLI_BIN}"
 
-# ── Download log discovery script ─────────────────────────────────────────────
+# ── Install log discovery engine ──────────────────────────────────────────────
 log "Installing log discovery engine..."
 curl -fsSL "${REPO_BASE}/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
 chmod +x "${INSTALL_DIR}/codered-discover.py"
@@ -125,7 +157,6 @@ TEMPLATES=(log-collection fim inventory threat vuln compliance active-response)
 for tmpl in "${TEMPLATES[@]}"; do
   curl -fsSL "${REPO_BASE}/templates/${tmpl}.xml" -o "${TEMPLATES_DST}/${tmpl}.xml"
 done
-
 ok "Templates installed to ${TEMPLATES_DST}"
 
 # ── Enable & start agent ──────────────────────────────────────────────────────
@@ -135,20 +166,25 @@ systemctl enable wazuh-agent
 systemctl start wazuh-agent
 ok "Agent service started."
 
+# ── Hash the shebang so Python3 is used ──────────────────────────────────────
+PYTHON3_PATH="$(command -v python3)"
+sed -i "1s|.*|#!${PYTHON3_PATH}|" "${CLI_BIN}"
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  Installation complete!${RESET}"
 echo ""
-echo -e "  Available commands:"
-echo -e "    ${CYAN}${BOLD}sudo codered-agent scan${RESET}              — Scan & recommend logs to monitor"
-echo -e "    ${CYAN}sudo codered-agent setup${RESET}             — Interactive module setup wizard"
-echo -e "    ${CYAN}sudo codered-agent status${RESET}            — View module status"
-echo -e "    ${CYAN}sudo codered-agent enable <module>${RESET}   — Enable a module"
-echo -e "    ${CYAN}sudo codered-agent disable <module>${RESET}  — Disable a module"
+echo -e "  Run the management console:"
+echo -e "    ${CYAN}${BOLD}sudo codered-agent${RESET}"
+echo ""
+echo -e "  Or use direct commands:"
+echo -e "    ${CYAN}sudo codered-agent scan${RESET}       — Scan & choose log sources"
+echo -e "    ${CYAN}sudo codered-agent setup${RESET}      — Enable/disable modules"
+echo -e "    ${CYAN}sudo codered-agent status${RESET}     — View agent status"
 echo ""
 
 read -rp "  Run log discovery scan now? (recommended) [Y/n]: " RUN_SCAN
 if [[ "${RUN_SCAN,,}" != "n" ]]; then
   echo ""
-  codered-agent scan
+  "${CLI_BIN}" scan
 fi
