@@ -2,65 +2,79 @@
 """
 CodeRed Server Agent — Unified CLI
 Single entry point for all agent management tasks.
+Cross-platform: Windows + Linux
 """
 
 import os
 import sys
+import re
 import shutil
 import subprocess
 import argparse
 import json
 import importlib.util
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# ── Paths (cross-platform) ────────────────────────────────────────────────────
-if sys.platform == "win32":
+# ── OS detection ──────────────────────────────────────────────────────────────
+IS_WIN = sys.platform == "win32"
+
+# ── Dynamic path detection ────────────────────────────────────────────────────
+def find_ossec_conf() -> str:
+    """Detect ossec.conf path regardless of install location."""
+    if IS_WIN:
+        candidates = [
+            r"C:\Program Files (x86)\ossec-agent\ossec.conf",
+            r"C:\Program Files\ossec-agent\ossec.conf",
+            r"C:\ossec-agent\ossec.conf",
+        ]
+        # Try registry first
+        try:
+            import winreg
+            for root in [winreg.HKEY_LOCAL_MACHINE]:
+                for key_path in [
+                    r"SOFTWARE\WOW6432Node\Ossec",
+                    r"SOFTWARE\Ossec",
+                    r"SOFTWARE\WOW6432Node\Wazuh",
+                    r"SOFTWARE\Wazuh",
+                ]:
+                    try:
+                        key  = winreg.OpenKey(root, key_path)
+                        path = winreg.QueryValueEx(key, "InstallLocation")[0]
+                        conf = os.path.join(path, "ossec.conf")
+                        if os.path.exists(conf):
+                            return conf
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        # Fallback: try common paths
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return candidates[0]   # default even if not found yet
+    else:
+        candidates = [
+            "/var/ossec/etc/ossec.conf",
+            "/var/wazuh/etc/ossec.conf",
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return candidates[0]
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+AGENT_CONF = find_ossec_conf()
+
+if IS_WIN:
     _base         = os.path.dirname(os.path.abspath(__file__))
-    AGENT_CONF    = r"C:\Program Files (x86)\ossec-agent\ossec.conf"
     STATE_FILE    = os.path.join(_base, "state.json")
     TEMPLATES_DIR = os.path.join(_base, "templates", "windows")
     DISCOVER_PATH = os.path.join(_base, "codered-discover.py")
 else:
-    AGENT_CONF    = "/var/ossec/etc/ossec.conf"
     STATE_FILE    = "/etc/codered/state.json"
     TEMPLATES_DIR = "/etc/codered/templates/linux"
     DISCOVER_PATH = "/etc/codered/codered-discover.py"
-
-# ── Service name (lazy detection) ────────────────────────────────────────────
-_SVC_NAME = None
-
-def get_svc_name() -> str:
-    global _SVC_NAME
-    if _SVC_NAME:
-        return _SVC_NAME
-    if sys.platform == "win32":
-        candidates = ["WazuhSvc", "Wazuh", "wazuh", "OssecSvc"]
-        for name in candidates:
-            r = subprocess.run(["sc", "query", name],
-                               capture_output=True, text=True)
-            if r.returncode == 0:
-                _SVC_NAME = name
-                return _SVC_NAME
-        r = subprocess.run(
-            ["sc", "query", "type=", "all", "state=", "all"],
-            capture_output=True, text=True
-        )
-        for line in r.stdout.splitlines():
-            if "wazuh" in line.lower() or "ossec" in line.lower():
-                parts = line.strip().split()
-                if parts:
-                    _SVC_NAME = parts[-1]
-                    return _SVC_NAME
-        _SVC_NAME = "WazuhSvc"
-    else:
-        for name in ["wazuh-agent", "ossec"]:
-            r = subprocess.run(["systemctl", "is-active", name],
-                               capture_output=True, text=True)
-            if r.returncode in (0, 3):
-                _SVC_NAME = name
-                return _SVC_NAME
-        _SVC_NAME = "wazuh-agent"
-    return _SVC_NAME
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED    = "\033[91m"
@@ -71,11 +85,28 @@ BOLD   = "\033[1m"
 DIM    = "\033[2m"
 RESET  = "\033[0m"
 
+# ── Valid log formats per OS ──────────────────────────────────────────────────
+VALID_FORMATS_WIN = {
+    "eventchannel", "eventlog", "syslog",
+    "iis", "command", "full_command",
+}
+VALID_FORMATS_LINUX = {
+    "syslog", "auth", "apache", "nginx", "mysql_log",
+    "postgresql_log", "audit", "json", "iis",
+    "command", "full_command", "multi-line",
+    "snort-full", "snort-fast", "squid", "ossec",
+    "djb-multilog", "cisco-ios", "cisco-asa",
+}
+
+def safe_format(fmt: str) -> str:
+    valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
+    return fmt if fmt in valid else "syslog"
+
 # ── Module definitions ────────────────────────────────────────────────────────
 MODULES = {
     "log-collection": {
         "label"   : "Log Collection",
-        "desc"    : "Collect system & application logs (syslog, journald, Windows Event Log)",
+        "desc"    : "Collect system & application logs",
         "template": "log-collection.xml",
         "tag"     : "<!-- MODULE:log-collection -->",
     },
@@ -122,38 +153,33 @@ DEFAULT_ENABLED = ["log-collection", "fim", "inventory", "threat"]
 # ── Admin check ───────────────────────────────────────────────────────────────
 def is_admin() -> bool:
     try:
-        if sys.platform == "win32":
+        if IS_WIN:
             import ctypes
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
         return os.geteuid() == 0
     except Exception:
         return False
 
-# ── Terminal input ────────────────────────────────────────────────────────────
+# ── Cross-platform keyboard input ─────────────────────────────────────────────
 def getch():
-    if sys.platform == "win32":
+    if IS_WIN:
         import msvcrt
         ch = msvcrt.getwch()
-
-        # Classic Windows console: extended key prefix
         if ch in ('\x00', '\xe0'):
             ch2 = msvcrt.getwch()
             if ch2 == 'H': return "UP"
             if ch2 == 'P': return "DOWN"
             return ''
-
-        # Windows Terminal: sends ANSI escape sequences
         if ch == '\x1b':
             try:
-                next1 = msvcrt.getwch()
-                if next1 == '[':
-                    next2 = msvcrt.getwch()
-                    if next2 == 'A': return "UP"
-                    if next2 == 'B': return "DOWN"
+                n1 = msvcrt.getwch()
+                if n1 == '[':
+                    n2 = msvcrt.getwch()
+                    if n2 == 'A': return "UP"
+                    if n2 == 'B': return "DOWN"
             except Exception:
                 pass
             return '\x1b'
-
         return ch
     else:
         import tty, termios
@@ -172,13 +198,13 @@ def getch():
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
+# ── Screen clear ──────────────────────────────────────────────────────────────
 def clear():
-    # ANSI clear + cursor home — prevents auto-scroll to bottom in Windows Terminal
-    if sys.platform == "win32":
+    if IS_WIN:
         try:
             import ctypes
-            kernel32 = ctypes.windll.kernel32
-            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+            ctypes.windll.kernel32.SetConsoleMode(
+                ctypes.windll.kernel32.GetStdHandle(-11), 7)
         except Exception:
             pass
     sys.stdout.write("\033[2J\033[H")
@@ -187,15 +213,49 @@ def clear():
 # ── Banner ────────────────────────────────────────────────────────────────────
 def banner(subtitle=""):
     clear()
-    print(f"{CYAN}{BOLD}")
-    print("  ____          _      ____          _")
-    print(" / ___|___   __| | ___|  _ \\ ___  __| |")
-    print("| |   / _ \\ / _` |/ _ \\ |_) / _ \\/ _` |")
-    print("| |__| (_) | (_| |  __/  _ <  __/ (_| |")
-    print(" \\____\\___/ \\__,_|\\___|_| \\_\\___|\\__,_|")
-    print(f"{RESET}")
+    sys.stdout.write(f"{CYAN}{BOLD}\n")
+    sys.stdout.write("  ____          _      ____          _\n")
+    sys.stdout.write(" / ___|___   __| | ___|  _ \\ ___  __| |\n")
+    sys.stdout.write("| |   / _ \\ / _` |/ _ \\ |_) / _ \\/ _` |\n")
+    sys.stdout.write("| |__| (_) | (_| |  __/  _ <  __/ (_| |\n")
+    sys.stdout.write(" \\____\\___/ \\__,_|\\___|_| \\_\\___|\\__,_|\n")
+    sys.stdout.write(f"{RESET}\n")
     if subtitle:
-        print(f"  {DIM}{subtitle}{RESET}\n")
+        sys.stdout.write(f"  {DIM}{subtitle}{RESET}\n\n")
+    sys.stdout.flush()
+
+# ── Service name detection ────────────────────────────────────────────────────
+_SVC_NAME = None
+
+def get_svc_name() -> str:
+    global _SVC_NAME
+    if _SVC_NAME:
+        return _SVC_NAME
+    if IS_WIN:
+        for name in ["WazuhSvc", "Wazuh", "wazuh", "OssecSvc"]:
+            r = subprocess.run(["sc", "query", name],
+                               capture_output=True, text=True)
+            if r.returncode == 0:
+                _SVC_NAME = name
+                return _SVC_NAME
+        # Search all services
+        r = subprocess.run(["sc", "query", "type=", "all", "state=", "all"],
+                           capture_output=True, text=True)
+        for line in r.stdout.splitlines():
+            if "wazuh" in line.lower() or "ossec" in line.lower():
+                if "SERVICE_NAME:" in line:
+                    _SVC_NAME = line.split(":")[-1].strip()
+                    return _SVC_NAME
+        _SVC_NAME = "WazuhSvc"
+    else:
+        for name in ["wazuh-agent", "ossec"]:
+            r = subprocess.run(["systemctl", "is-active", name],
+                               capture_output=True, text=True)
+            if r.returncode in (0, 3):
+                _SVC_NAME = name
+                return _SVC_NAME
+        _SVC_NAME = "wazuh-agent"
+    return _SVC_NAME
 
 # ── State helpers ─────────────────────────────────────────────────────────────
 def load_state() -> dict:
@@ -209,25 +269,81 @@ def save_state(state: dict):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
+# ── Config validation ─────────────────────────────────────────────────────────
+def validate_conf(conf_path: str) -> tuple:
+    """
+    Validate ossec.conf before applying.
+    Returns (ok: bool, error: str)
+    """
+    # 1. XML structure check (both platforms)
+    try:
+        ET.parse(conf_path)
+    except ET.ParseError as e:
+        return False, f"XML parse error: {e}"
+
+    # 2. Check for invalid log formats (scan <localfile> blocks)
+    valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
+    try:
+        tree = ET.parse(conf_path)
+        root = tree.getroot()
+        for lf in root.iter("localfile"):
+            fmt_el = lf.find("log_format")
+            if fmt_el is not None and fmt_el.text and fmt_el.text.strip() not in valid:
+                return False, f"Invalid log_format '{fmt_el.text.strip()}' for this OS"
+    except Exception as e:
+        return False, str(e)
+
+    # 3. Linux only: wazuh-agentd -t dry-run
+    if not IS_WIN:
+        for binary in ["/var/ossec/bin/wazuh-agentd", "/var/ossec/bin/ossec-agentd"]:
+            if os.path.exists(binary):
+                r = subprocess.run([binary, "-t"],
+                                   capture_output=True, text=True)
+                if r.returncode != 0:
+                    err = (r.stderr or r.stdout or "").strip()
+                    return False, err
+                break
+
+    return True, ""
+
 # ── ossec.conf helpers ────────────────────────────────────────────────────────
 def read_conf() -> str:
     if not os.path.exists(AGENT_CONF):
         return ""
-    with open(AGENT_CONF) as f:
+    with open(AGENT_CONF, encoding="utf-8", errors="replace") as f:
         return f.read()
 
-def write_conf(content: str):
-    shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
-    with open(AGENT_CONF, "w") as f:
-        f.write(content)
+def write_conf(content: str) -> bool:
+    """Write config to temp, validate, then atomically replace. Returns success."""
+    tmp = AGENT_CONF + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        ok, err = validate_conf(tmp)
+        if not ok:
+            os.remove(tmp)
+            print(f"\n{RED}  ✖ Config validation failed — changes NOT applied.{RESET}")
+            print(f"  {DIM}{err[:300]}{RESET}\n")
+            return False
+        shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+        shutil.move(tmp, AGENT_CONF)
+        return True
+    except Exception as e:
+        print(f"{RED}  ✖ Failed to write config: {e}{RESET}")
+        try: os.remove(tmp)
+        except: pass
+        return False
 
 def inject_module(mid: str, conf: str) -> str:
     mod  = MODULES[mid]
     tag  = mod["tag"]
     tmpl = os.path.join(TEMPLATES_DIR, mod["template"])
-    if tag in conf or not os.path.exists(tmpl):
+    if tag in conf:
         return conf
-    with open(tmpl) as f:
+    if not os.path.exists(tmpl):
+        print(f"{YELLOW}  [warn] Template not found: {tmpl}{RESET}")
+        return conf
+    with open(tmpl, encoding="utf-8") as f:
         block = f"\n  {tag}\n" + f.read() + f"\n  <!-- END:{mid} -->\n"
     return conf.replace("</ossec_config>", block + "</ossec_config>")
 
@@ -240,60 +356,67 @@ def remove_module(mid: str, conf: str) -> str:
         return conf
     return conf[:s] + conf[e + len(end_tag):]
 
-def apply_state(state: dict):
+def apply_state(state: dict) -> bool:
     conf = read_conf()
     if not conf:
         print(f"{YELLOW}  Agent config not found at {AGENT_CONF}{RESET}")
-        return
+        return False
     for mid in MODULES:
         conf = remove_module(mid, conf)
     for mid in state["enabled"]:
         conf = inject_module(mid, conf)
-    write_conf(conf)
+    return write_conf(conf)
 
 # ── Service control ───────────────────────────────────────────────────────────
 def service_status() -> str:
     try:
-        if sys.platform == "win32":
-            r = subprocess.run(["sc", "query", get_svc_name()], capture_output=True, text=True)
+        if IS_WIN:
+            r = subprocess.run(["sc", "query", get_svc_name()],
+                               capture_output=True, text=True)
             return "active" if "RUNNING" in r.stdout else "inactive"
         else:
-            r = subprocess.run(["systemctl", "is-active", get_svc_name()], capture_output=True, text=True)
+            r = subprocess.run(["systemctl", "is-active", get_svc_name()],
+                               capture_output=True, text=True)
             return r.stdout.strip()
     except Exception:
         return "unknown"
 
 def restart_agent():
-    print(f"\n{CYAN}  Restarting CodeRed Agent (service: {get_svc_name()})...{RESET}")
+    svc = get_svc_name()
+    print(f"\n{CYAN}  Restarting CodeRed Agent (service: {svc})...{RESET}")
     try:
-        if sys.platform == "win32":
-            stop = subprocess.run(["sc", "stop", get_svc_name()],
-                                  capture_output=True, text=True)
+        if IS_WIN:
+            subprocess.run(["sc", "stop",  svc], capture_output=True)
             import time; time.sleep(2)
-            start = subprocess.run(["sc", "start", get_svc_name()],
-                                   capture_output=True, text=True)
-            if start.returncode == 0:
+            r = subprocess.run(["sc", "start", svc], capture_output=True, text=True)
+            if r.returncode == 0:
                 print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
             else:
-                print(f"{YELLOW}  Agent service not running yet — starting...{RESET}")
-                subprocess.run(["sc", "start", get_svc_name()], capture_output=True)
-                print(f"{GREEN}  ✔ Agent start command sent.{RESET}")
+                print(f"{YELLOW}  ⚠ Start command sent — check Agent Status to confirm.{RESET}")
         else:
-            subprocess.run(["systemctl", "restart", get_svc_name()], check=True)
+            subprocess.run(["systemctl", "restart", svc], check=True)
             print(f"{GREEN}  ✔ Agent restarted successfully.{RESET}")
     except subprocess.CalledProcessError as e:
-        print(f"{RED}  ✖ Failed to restart agent: {e}{RESET}")
-        if sys.platform == "win32":
-            print(f"{YELLOW}  Try manually: sc start {get_svc_name()}{RESET}")
+        print(f"{RED}  ✖ Failed to restart: {e}{RESET}")
+        if IS_WIN:
+            print(f"{YELLOW}  Try: sc start {svc}{RESET}")
         else:
-            print(f"{YELLOW}  Try manually: systemctl start {get_svc_name()}{RESET}")
+            print(f"{YELLOW}  Try: systemctl start {svc}{RESET}")
+
+# ── Viewport helpers ──────────────────────────────────────────────────────────
+def get_viewport(reserved=10) -> int:
+    try:
+        rows = os.get_terminal_size().lines
+    except Exception:
+        rows = 24
+    return max(3, rows - reserved)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ── MAIN MENU ─────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 
 MENU_ITEMS = [
-    ("scan",      "Scan Log Directories", "Discover logs on this endpoint and choose which to monitor"),
+    ("scan",      "Scan Log Directories", "Discover logs and choose which to monitor"),
     ("setup",     "Module Setup",         "Enable or disable monitoring modules"),
     ("status",    "Agent Status",         "View service status and active modules"),
     ("settings",  "Agent Settings",       "Configure manager IP and connection settings"),
@@ -307,7 +430,8 @@ def show_main_menu():
         banner("Management Console")
         svc = service_status()
         svc_col = GREEN if svc == "active" else RED
-        sys.stdout.write(f"  Agent Service : {svc_col}{BOLD}{svc}{RESET}\n\n")
+        sys.stdout.write(f"  Agent Service : {svc_col}{BOLD}{svc}{RESET}\n")
+        sys.stdout.write(f"  Config        : {DIM}{AGENT_CONF}{RESET}\n\n")
         sys.stdout.write(f"  {DIM}↑↓ move · Enter select · 1-5 shortcut{RESET}\n\n")
 
         for i, (key, label, desc) in enumerate(MENU_ITEMS):
@@ -321,11 +445,11 @@ def show_main_menu():
         sys.stdout.flush()
 
         ch = getch()
-        if   ch == "UP"   and cursor > 0:                  cursor -= 1
+        if   ch == "UP"   and cursor > 0:                   cursor -= 1
         elif ch == "DOWN" and cursor < len(MENU_ITEMS) - 1: cursor += 1
         elif ch in ("\r", "\n"):
             key = MENU_ITEMS[cursor][0]
-            if   key == "exit":      clear(); print(f"  {DIM}Goodbye.{RESET}\n"); sys.exit(0)
+            if   key == "exit":      clear(); sys.exit(0)
             elif key == "scan":      menu_scan()
             elif key == "setup":     menu_setup()
             elif key == "status":    menu_status()
@@ -336,17 +460,14 @@ def show_main_menu():
         elif ch == "3": menu_status()
         elif ch == "4": menu_settings()
         elif ch == "5": menu_uninstall()
-        elif ch == "0": clear(); print(f"  {DIM}Goodbye.{RESET}\n"); sys.exit(0)
-        elif ch == "q": clear(); sys.exit(0)
+        elif ch in ("0", "q"): clear(); sys.exit(0)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ── 1. SCAN ───────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 def menu_scan():
     try:
         if not os.path.exists(DISCOVER_PATH):
             banner("Scan Log Directories")
-            print(f"{RED}  codered-discover.py not found at:\n  {DISCOVER_PATH}{RESET}\n")
+            sys.stdout.write(f"{RED}  codered-discover.py not found at:\n  {DISCOVER_PATH}{RESET}\n\n")
             input("  Press Enter to return...")
             return
         spec   = importlib.util.spec_from_file_location("codered_discover", DISCOVER_PATH)
@@ -355,33 +476,22 @@ def menu_scan():
         module.run_discovery()
         input(f"\n  Press {BOLD}Enter{RESET} to return to menu...")
     except KeyboardInterrupt:
-        print(f"\n{YELLOW}  Scan cancelled.{RESET}")
+        sys.stdout.write(f"\n{YELLOW}  Scan cancelled.{RESET}\n")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ── 2. MODULE SETUP ───────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 def menu_setup():
-    state   = load_state()
-    enabled = set(state["enabled"])
-    keys    = list(MODULES.keys())
+    state      = load_state()
+    enabled    = set(state["enabled"])
+    keys       = list(MODULES.keys())
     cursor     = 0
     view_start = 0
 
-    def get_viewport():
-        try:
-            rows = os.get_terminal_size().lines
-        except Exception:
-            rows = 24
-        return max(3, (rows - 10) // 2)
-
     def render():
         nonlocal view_start
-        viewport = get_viewport()
-        if cursor < view_start:
-            view_start = cursor
-        elif cursor >= view_start + viewport:
-            view_start = cursor - viewport + 1
-        view_end = min(view_start + viewport, len(keys))
+        vp = get_viewport(reserved=8)
+        if cursor < view_start:             view_start = cursor
+        elif cursor >= view_start + vp:     view_start = cursor - vp + 1
+        view_end = min(view_start + vp, len(keys))
 
         banner("Module Setup")
         sys.stdout.write(f"  {DIM}↑↓ move · Space toggle · A all · N none · Enter save · Q back{RESET}\n\n")
@@ -414,19 +524,18 @@ def menu_setup():
         elif ch in ("\r", "\n"):
             state["enabled"] = list(enabled)
             save_state(state)
-            print(f"\n{CYAN}  Applying configuration...{RESET}")
-            apply_state(state)
-            restart_agent()
-            print(f"\n{GREEN}  ✔ Module configuration saved.{RESET}")
+            sys.stdout.write(f"\n{CYAN}  Applying configuration...{RESET}\n")
+            ok = apply_state(state)
+            if ok:
+                restart_agent()
+                sys.stdout.write(f"\n{GREEN}  ✔ Module configuration saved.{RESET}\n")
             input(f"\n  Press {BOLD}Enter{RESET} to return to menu...")
             return
         elif ch.lower() == "q":
             return
         render()
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ── 3. STATUS ─────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 def menu_status():
     banner("Agent Status")
     state   = load_state()
@@ -434,32 +543,34 @@ def menu_status():
     svc     = service_status()
     svc_col = GREEN if svc == "active" else RED
 
-    print(f"  Service Status : {svc_col}{BOLD}{svc}{RESET}")
-    print(f"  Manager IP     : {CYAN}{state.get('manager_ip','(not set)')}{RESET}")
-    print(f"  Config File    : {DIM}{AGENT_CONF}{RESET}\n")
+    sys.stdout.write(f"  Service Status : {svc_col}{BOLD}{svc}{RESET}\n")
+    sys.stdout.write(f"  Manager IP     : {CYAN}{state.get('manager_ip','(not set)')}{RESET}\n")
+    sys.stdout.write(f"  Config File    : {DIM}{AGENT_CONF}{RESET}\n")
+    sys.stdout.write(f"  Templates      : {DIM}{TEMPLATES_DIR}{RESET}\n\n")
 
-    print(f"  {BOLD}{'Module':<30} {'Status'}{RESET}")
-    print(f"  {'─'*30} {'─'*12}")
+    sys.stdout.write(f"  {BOLD}{'Module':<30} {'Status'}{RESET}\n")
+    sys.stdout.write(f"  {'─'*30} {'─'*12}\n")
     for mid, mod in MODULES.items():
         status = f"{GREEN}enabled{RESET}" if mid in enabled else f"{RED}disabled{RESET}"
-        print(f"  {mod['label']:<30} {status}")
+        sys.stdout.write(f"  {mod['label']:<30} {status}\n")
 
-    print()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
     input(f"  Press {BOLD}Enter{RESET} to return to menu...")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ── 4. SETTINGS ───────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 def menu_settings():
     while True:
         banner("Agent Settings")
         state = load_state()
-        print(f"  Manager IP  : {CYAN}{state.get('manager_ip','(not set)')}{RESET}")
-        print(f"  Config File : {DIM}{AGENT_CONF}{RESET}\n")
-        print(f"  {CYAN}[1]{RESET} Change Manager IP")
-        print(f"  {CYAN}[2]{RESET} Test connection to Manager")
-        print(f"  {CYAN}[3]{RESET} Restart Agent")
-        print(f"  {DIM}[0]{RESET} Back\n")
+        sys.stdout.write(f"  Manager IP  : {CYAN}{state.get('manager_ip','(not set)')}{RESET}\n")
+        sys.stdout.write(f"  Config File : {DIM}{AGENT_CONF}{RESET}\n")
+        sys.stdout.write(f"  Templates   : {DIM}{TEMPLATES_DIR}{RESET}\n\n")
+        sys.stdout.write(f"  {CYAN}[1]{RESET} Change Manager IP\n")
+        sys.stdout.write(f"  {CYAN}[2]{RESET} Test connection to Manager\n")
+        sys.stdout.write(f"  {CYAN}[3]{RESET} Restart Agent\n")
+        sys.stdout.write(f"  {DIM}[0]{RESET} Back\n\n")
+        sys.stdout.flush()
 
         ch = input("  Select: ").strip()
 
@@ -470,12 +581,13 @@ def menu_settings():
                 save_state(state)
                 conf = read_conf()
                 if conf:
-                    import re
                     conf = re.sub(r'<address>.*?</address>',
                                   f'<address>{new_ip}</address>', conf)
-                    write_conf(conf)
-                print(f"\n{GREEN}  ✔ Manager IP updated to: {new_ip}{RESET}")
-                restart_agent()
+                    if write_conf(conf):
+                        print(f"\n{GREEN}  ✔ Manager IP updated to: {new_ip}{RESET}")
+                        restart_agent()
+                    else:
+                        print(f"{YELLOW}  Manager IP saved to state but config update failed.{RESET}")
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
 
         elif ch == "2":
@@ -495,29 +607,28 @@ def menu_settings():
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
 
         elif ch == "3":
-            apply_state(load_state())
-            restart_agent()
+            if apply_state(load_state()):
+                restart_agent()
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
 
         elif ch == "0":
             return
 
-# ─────────────────────────────────────────────────────────────────────────────
 # ── 5. UNINSTALL ──────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
 def menu_uninstall():
     banner("Uninstall Agent")
-    print(f"  {YELLOW}{BOLD}Warning: This will remove CodeRed Server Agent from this system.{RESET}")
-    print(f"  {YELLOW}All agent configuration and state will be deleted.{RESET}\n")
-    print(f"  Items to be removed:")
-    print(f"    {RED}•{RESET} Agent service and binaries")
-    print(f"    {RED}•{RESET} {AGENT_CONF}")
-    if sys.platform != "win32":
-        print(f"    {RED}•{RESET} /etc/codered/")
-        print(f"    {RED}•{RESET} /usr/local/bin/codered-agent")
+    sys.stdout.write(f"  {YELLOW}{BOLD}Warning: This will remove CodeRed Server Agent from this system.{RESET}\n")
+    sys.stdout.write(f"  {YELLOW}All agent configuration and state will be deleted.{RESET}\n\n")
+    sys.stdout.write(f"  Items to be removed:\n")
+    sys.stdout.write(f"    {RED}•{RESET} Agent service and binaries\n")
+    sys.stdout.write(f"    {RED}•{RESET} {AGENT_CONF}\n")
+    if not IS_WIN:
+        sys.stdout.write(f"    {RED}•{RESET} /etc/codered/\n")
+        sys.stdout.write(f"    {RED}•{RESET} /usr/local/bin/codered-agent\n")
     else:
-        print(f"    {RED}•{RESET} C:\\Program Files\\CodeRed\\")
-    print()
+        sys.stdout.write(f"    {RED}•{RESET} C:\\Program Files\\CodeRed\\\n")
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
     confirm = input(f"  Type {BOLD}UNINSTALL{RESET} to confirm, or press Enter to cancel: ").strip()
     if confirm != "UNINSTALL":
@@ -526,23 +637,20 @@ def menu_uninstall():
         return
 
     print(f"\n{CYAN}  Stopping agent service...{RESET}")
-    try:
-        if sys.platform == "win32":
-            subprocess.run(["sc", "stop", get_svc_name()], capture_output=True)
-        else:
-            subprocess.run(["systemctl", "stop", get_svc_name()], capture_output=True)
-        print(f"{GREEN}  ✔ Service stopped.{RESET}")
-    except Exception:
-        print(f"{YELLOW}  Service was not running.{RESET}")
+    svc = get_svc_name()
+    if IS_WIN:
+        subprocess.run(["sc", "stop", svc], capture_output=True)
+    else:
+        subprocess.run(["systemctl", "stop", svc], capture_output=True)
+    print(f"{GREEN}  ✔ Service stopped.{RESET}")
 
     print(f"{CYAN}  Removing packages...{RESET}")
-    if sys.platform == "win32":
+    if IS_WIN:
         subprocess.run(
             'wmic product where "name like \'%Wazuh%\'" call uninstall /nointeractive',
             shell=True, capture_output=True
         )
     else:
-        removed = False
         for cmd in [
             ["apt-get", "remove", "--purge", "-y", "wazuh-agent"],
             ["dnf",     "remove", "-y", "wazuh-agent"],
@@ -551,31 +659,28 @@ def menu_uninstall():
             try:
                 r = subprocess.run(cmd, capture_output=True)
                 if r.returncode == 0:
-                    removed = True
                     break
             except FileNotFoundError:
                 continue
-        if not removed:
-            print(f"{YELLOW}  Could not remove package automatically. Remove manually.{RESET}")
 
     print(f"{CYAN}  Removing CodeRed files...{RESET}")
-    if sys.platform != "win32":
+    if IS_WIN:
+        shutil.rmtree(r"C:\Program Files\CodeRed", ignore_errors=True)
+    else:
         shutil.rmtree("/etc/codered", ignore_errors=True)
-        for f in ["/usr/local/bin/codered-agent",
-                  "/etc/apt/sources.list.d/wazuh.list",
-                  "/usr/share/keyrings/wazuh.gpg",
-                  "/etc/yum.repos.d/wazuh.repo"]:
+        for f in [
+            "/usr/local/bin/codered-agent",
+            "/etc/apt/sources.list.d/wazuh.list",
+            "/usr/share/keyrings/wazuh.gpg",
+            "/etc/yum.repos.d/wazuh.repo",
+        ]:
             try: os.remove(f)
             except: pass
-    else:
-        shutil.rmtree(r"C:\Program Files\CodeRed", ignore_errors=True)
 
     print(f"\n{GREEN}{BOLD}  ✔ CodeRed Server Agent has been completely removed.{RESET}\n")
     sys.exit(0)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ── DIRECT SUBCOMMANDS ────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Direct subcommands ────────────────────────────────────────────────────────
 def cmd_enable(module):
     if module not in MODULES:
         print(f"{RED}Unknown module: {module}{RESET}"); sys.exit(1)
@@ -583,8 +688,10 @@ def cmd_enable(module):
     if module in state["enabled"]:
         print(f"{YELLOW}{MODULES[module]['label']} already enabled.{RESET}"); return
     state["enabled"].append(module)
-    save_state(state); apply_state(state); restart_agent()
-    print(f"{GREEN}✔ Enabled: {MODULES[module]['label']}{RESET}")
+    save_state(state)
+    if apply_state(state):
+        restart_agent()
+        print(f"{GREEN}✔ Enabled: {MODULES[module]['label']}{RESET}")
 
 def cmd_disable(module):
     if module not in MODULES:
@@ -593,12 +700,12 @@ def cmd_disable(module):
     if module not in state["enabled"]:
         print(f"{YELLOW}{MODULES[module]['label']} already disabled.{RESET}"); return
     state["enabled"].remove(module)
-    save_state(state); apply_state(state); restart_agent()
-    print(f"{GREEN}✔ Disabled: {MODULES[module]['label']}{RESET}")
+    save_state(state)
+    if apply_state(state):
+        restart_agent()
+        print(f"{GREEN}✔ Disabled: {MODULES[module]['label']}{RESET}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ── ENTRY POINT ───────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 def main():
     if not is_admin():
         print(f"{RED}Please run as Administrator (Windows) or root (Linux).{RESET}")
@@ -606,40 +713,33 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="codered-agent",
-        description="CodeRed Server Agent — Management CLI (run without args for interactive menu)"
+        description="CodeRed Server Agent — run without args for interactive menu"
     )
     sub = parser.add_subparsers(dest="cmd")
-    sub.add_parser("scan",      help="Scan log directories")
-    sub.add_parser("setup",     help="Module setup wizard")
-    sub.add_parser("status",    help="Show agent status")
-    sub.add_parser("settings",  help="Configure agent settings")
-    sub.add_parser("uninstall", help="Remove agent from this system")
-    sub.add_parser("restart",   help="Restart agent service")
-    p_en  = sub.add_parser("enable",  help="Enable a module")
-    p_en.add_argument("module", choices=MODULES.keys())
-    p_dis = sub.add_parser("disable", help="Disable a module")
-    p_dis.add_argument("module", choices=MODULES.keys())
+    sub.add_parser("scan");      sub.add_parser("setup")
+    sub.add_parser("status");    sub.add_parser("settings")
+    sub.add_parser("uninstall"); sub.add_parser("restart")
+    p_en  = sub.add_parser("enable");  p_en.add_argument("module",  choices=MODULES.keys())
+    p_dis = sub.add_parser("disable"); p_dis.add_argument("module", choices=MODULES.keys())
 
     args = parser.parse_args()
 
-    dispatch = {
+    direct = {
         "scan":      menu_scan,
         "setup":     menu_setup,
         "status":    menu_status,
         "settings":  menu_settings,
         "uninstall": menu_uninstall,
-        "restart":   lambda: (apply_state(load_state()), restart_agent()),
+        "restart":   lambda: apply_state(load_state()) and restart_agent(),
     }
 
-    if args.cmd in dispatch:
-        dispatch[args.cmd]()
-        return
+    if args.cmd in direct:
+        direct[args.cmd](); return
     if args.cmd == "enable":
         cmd_enable(args.module); return
     if args.cmd == "disable":
         cmd_disable(args.module); return
 
-    # No args → interactive main menu
     try:
         show_main_menu()
     except KeyboardInterrupt:
