@@ -330,16 +330,54 @@ def clear_screen():
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
-# Valid log_format values supported by Wazuh agent on each OS
-VALID_FORMATS_WIN   = {"eventchannel", "eventlog", "syslog", "full_command", "command", "iis"}
-VALID_FORMATS_LINUX = {"syslog", "apache", "nginx", "mysql_log", "audit", "json",
-                       "full_command", "command", "eventchannel", "iis", "multi-line"}
+# Valid log_format values per OS (from Wazuh agent documentation)
+VALID_FORMATS_WIN = {
+    "eventchannel", "eventlog", "syslog",
+    "iis", "command", "full_command",
+}
+VALID_FORMATS_LINUX = {
+    "syslog", "auth", "apache", "nginx", "mysql_log",
+    "postgresql_log", "audit", "json", "iis",
+    "command", "full_command", "multi-line",
+    "snort-full", "snort-fast", "squid", "ossec",
+    "djb-multilog", "cisco-ios", "cisco-asa",
+}
 
 def safe_format(fmt: str) -> str:
-    """Return a valid log_format for the current OS, falling back to syslog."""
-    if IS_WIN:
-        return fmt if fmt in VALID_FORMATS_WIN else "syslog"
-    return fmt if fmt in VALID_FORMATS_LINUX else "syslog"
+    """Return a valid log_format for the current OS. Falls back to syslog."""
+    valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
+    return fmt if fmt in valid else "syslog"
+
+def validate_ossec_conf(conf_path: str) -> tuple:
+    """
+    Run wazuh-logtest or ossec-logtest dry-run to validate ossec.conf.
+    Returns (ok: bool, error: str).
+    Falls back to basic XML check if test binary not available.
+    """
+    # Try Wazuh agent config test
+    test_bins = [
+        "/var/ossec/bin/wazuh-agentd",
+        "/var/ossec/bin/ossec-agentd",
+    ]
+    for binary in test_bins:
+        if os.path.exists(binary):
+            r = subprocess.run(
+                [binary, "-t"],
+                capture_output=True, text=True
+            )
+            if r.returncode != 0:
+                # Extract meaningful error from stderr/stdout
+                err = (r.stderr or r.stdout or "").strip()
+                return False, err
+            return True, ""
+
+    # Fallback: basic XML validity check using Python
+    try:
+        import xml.etree.ElementTree as ET
+        ET.parse(conf_path)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 # ── ossec.conf injection ──────────────────────────────────────────────────────
 def inject_into_conf(selected: list):
@@ -360,8 +398,11 @@ def inject_into_conf(selected: list):
 
     # Build new block — normalise format per OS
     lines = [f"  {start_tag}"]
+    skipped = 0
     for item in selected:
         fmt = safe_format(item["format"])
+        if fmt != item["format"]:
+            skipped += 1
         lines.append(
             f"  <localfile>\n"
             f"    <log_format>{fmt}</log_format>\n"
@@ -369,13 +410,28 @@ def inject_into_conf(selected: list):
             f"  </localfile>"
         )
     lines.append(f"  {end_tag}")
-    block = "\n".join(lines)
+    block    = "\n".join(lines)
+    new_conf = conf.replace("</ossec_config>", block + "\n</ossec_config>")
 
-    conf = conf.replace("</ossec_config>", block + "\n</ossec_config>")
+    if skipped:
+        print(f"{YELLOW}  ⚠ {skipped} log format(s) normalised to 'syslog' for compatibility.{RESET}")
 
+    # Write to temp file and validate before overwriting
+    tmp_path = AGENT_CONF + ".tmp"
+    with open(tmp_path, "w") as f:
+        f.write(new_conf)
+
+    ok, err = validate_ossec_conf(tmp_path)
+    if not ok and err:
+        os.remove(tmp_path)
+        print(f"{RED}  ✖ Config validation failed — agent config NOT updated.{RESET}")
+        print(f"  {DIM}{err[:200]}{RESET}")
+        return
+
+    # Validation passed — apply
     shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
-    with open(AGENT_CONF, "w") as f:
-        f.write(conf)
+    shutil.move(tmp_path, AGENT_CONF)
+    print(f"{GREEN}  ✔ Config validated and written successfully.{RESET}")
 
 # ── Interactive UI (viewport-based — only renders visible items) ──────────────
 def present_ui(discovered: list, custom_logs: list) -> list:
