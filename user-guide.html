@@ -895,23 +895,65 @@
         <span class="section-num">04</span>
         <h2>First-Time Setup</h2>
       </div>
-      <p>Complete these two steps after installation to fully configure your agent.</p>
+      <p>After installation, launch the interactive management console. Everything is controlled from a single menu — no need to remember individual commands.</p>
+
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">linux</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>sudo codered-agent</pre>
+      </div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">windows — run as Administrator</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>codered-agent</pre>
+      </div>
+
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+          <span class="terminal-title">codered-agent — Management Console</span>
+        </div>
+        <pre>  <span class="t-cyan">____          _      ____          _</span>
+  <span class="t-cyan">/ ___|___   __| | ___|  _ \ ___  __| |</span>
+  <span class="t-cyan">| |   / _ \ / _` |/ _ \ |_) / _ \/ _` |</span>
+  <span class="t-cyan">| |__| (_) | (_| |  __/  _ &lt;  __/ (_| |</span>
+  <span class="t-cyan"> \____\___/ \__,_|\___|_| \_\___|__,_|</span>
+
+  Management Console
+
+  Agent Service : <span class="t-green">active</span>
+
+  <span class="t-dim">↑↓ move · Enter select · 1-5 shortcut</span>
+
+  <span class="t-cyan">▶</span> <span class="t-cyan">[1]</span> <span class="t-bright">Scan Log Directories</span>
+       <span class="t-dim">Discover logs on this endpoint and choose which to monitor</span>
+
+    <span class="t-cyan">[2]</span> Module Setup
+
+    <span class="t-cyan">[3]</span> Agent Status
+
+    <span class="t-cyan">[4]</span> Agent Settings
+
+    <span class="t-cyan">[5]</span> Uninstall Agent
+
+    <span class="t-dim">[0]</span> Exit</pre>
+      </div>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Use <kbd>↑</kbd> <kbd>↓</kbd> arrow keys to navigate and <kbd>Enter</kbd> to select. You can also press the number shortcut keys <kbd>1</kbd>–<kbd>5</kbd> directly from the main menu.</span>
+      </div>
 
       <div class="steps">
+
         <!-- Step 1 -->
         <div class="step">
           <div class="step-num">1</div>
           <div class="step-body">
-            <div class="step-title">Run the Log Discovery Scan</div>
-            <p>Scans your endpoint for running services, detects log files, scores each by security relevance, and presents recommendations.</p>
-            <div class="code-block">
-              <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-              <pre>sudo codered-agent scan</pre>
-            </div>
+            <div class="step-title">Scan Log Directories <span style="color:var(--text-dim);font-size:12px;font-weight:400">— press 1 from main menu</span></div>
+            <p>Scans the endpoint for running services and log files, scores each by security relevance, and presents an interactive checklist. Tick the logs you want to monitor — they are automatically added to the agent config.</p>
             <div class="terminal">
               <div class="terminal-bar">
                 <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
-                <span class="terminal-title">codered-agent scan</span>
+                <span class="terminal-title">[1] Scan Log Directories</span>
               </div>
               <pre>  <span class="t-cyan">CodeRed Log Discovery</span>
   Scanning endpoint...
@@ -942,7 +984,10 @@
   <span class="t-dim">🟢 LOW PRIORITY</span>
 
     [<span class="t-dim">✖</span>] /var/log/mail.log
-       <span class="t-dim">Mail delivery events</span></pre>
+       <span class="t-dim">Mail delivery events</span>
+
+  <span class="t-dim">──────────────────────────────────────────</span>
+  <span class="t-bright">4</span> log(s) selected for monitoring</pre>
             </div>
 
             <div class="table-wrap" style="margin-top:16px;">
@@ -950,18 +995,17 @@
                 <thead><tr><th>Key</th><th>Action</th></tr></thead>
                 <tbody>
                   <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Move cursor</td></tr>
-                  <tr><td><kbd>Space</kbd></td><td>Toggle selected/deselected</td></tr>
+                  <tr><td><kbd>Space</kbd></td><td>Toggle selected / deselected</td></tr>
                   <tr><td><kbd>A</kbd></td><td>Select all</td></tr>
                   <tr><td><kbd>N</kbd></td><td>Deselect all</td></tr>
-                  <tr><td><kbd>Enter</kbd></td><td>Confirm and apply</td></tr>
-                  <tr><td><kbd>Q</kbd></td><td>Cancel</td></tr>
+                  <tr><td><kbd>Enter</kbd></td><td>Confirm and apply to agent config</td></tr>
+                  <tr><td><kbd>Q</kbd></td><td>Cancel and go back</td></tr>
                 </tbody>
               </table>
             </div>
-
             <div class="callout tip">
               <span class="callout-icon">💡</span>
-              <span>You can re-run <code>sudo codered-agent scan</code> at any time — for example, after installing a new web server or database.</span>
+              <span>Re-run Scan any time you install new services (e.g. a new web server or database) to add their logs to monitoring.</span>
             </div>
           </div>
         </div>
@@ -970,24 +1014,14 @@
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-body">
-            <div class="step-title">Run the Module Setup Wizard</div>
-            <p>Choose which security modules to enable for this endpoint.</p>
-            <div class="code-block">
-              <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-              <pre>sudo codered-agent setup</pre>
-            </div>
+            <div class="step-title">Module Setup <span style="color:var(--text-dim);font-size:12px;font-weight:400">— press 2 from main menu</span></div>
+            <p>Enable or disable monitoring modules for this endpoint. Changes are applied and the agent is restarted automatically on confirmation.</p>
             <div class="terminal">
               <div class="terminal-bar">
                 <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
-                <span class="terminal-title">codered-agent setup</span>
+                <span class="terminal-title">[2] Module Setup</span>
               </div>
-              <pre>  <span class="t-cyan">____          _      ____          _</span>
-  <span class="t-cyan">/ ___|___   __| | ___|  _ \ ___  __| |</span>
-  <span class="t-cyan">| |   / _ \ / _` |/ _ \ |_) / _ \/ _` |</span>
-  <span class="t-cyan">| |__| (_) | (_| |  __/  _ &lt;  __/ (_| |</span>
-  <span class="t-cyan"> \____\___/ \__,_|\___|_| \_\___|__,_|</span>
-
-  Select modules to enable  <span class="t-dim">(↑↓ move · Space toggle · Enter confirm)</span>
+              <pre>  <span class="t-dim">↑↓ move · Space toggle · A all · N none · Enter save · Q back</span>
 
   <span class="t-cyan">▶</span> [<span class="t-green">✔</span>] <span class="t-bright">Log Collection</span>
        <span class="t-dim">Collect system &amp; application logs</span>
@@ -1008,7 +1042,10 @@
        <span class="t-dim">CIS Benchmark, PCI-DSS policy checks</span>
 
     [<span class="t-red">✖</span>] <span class="t-bright">Active Response</span>
-       <span class="t-dim">Auto-block IPs, kill processes on alert</span></pre>
+       <span class="t-dim">Auto-block IPs, kill processes on alert</span>
+
+  <span class="t-dim">──────────────────────────────────────</span>
+  4 module(s) enabled</pre>
             </div>
 
             <h3 style="margin-top:24px;">Recommended modules by environment</h3>
@@ -1025,6 +1062,34 @@
             </div>
           </div>
         </div>
+
+        <!-- Step 3 -->
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">Agent Settings <span style="color:var(--text-dim);font-size:12px;font-weight:400">— press 4 from main menu</span></div>
+            <p>Set or update the CodeRed Manager IP. You can also test the connection to confirm the agent can reach the manager on TCP 1514.</p>
+            <div class="terminal">
+              <div class="terminal-bar">
+                <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+                <span class="terminal-title">[4] Agent Settings</span>
+              </div>
+              <pre>  Manager IP  : <span class="t-cyan">10.0.0.1</span>
+  Config File : <span class="t-dim">/var/ossec/etc/ossec.conf</span>
+
+  <span class="t-cyan">[1]</span> Change Manager IP
+  <span class="t-cyan">[2]</span> Test connection to Manager
+  <span class="t-cyan">[3]</span> Restart Agent
+  <span class="t-dim">[0]</span> Back
+
+  Select: <span class="t-bright">2</span>
+
+  Testing connection to <span class="t-cyan">10.0.0.1:1514</span>...
+  <span class="t-green">✔ Manager is reachable.</span></pre>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
 
@@ -1034,62 +1099,75 @@
         <span class="section-num">05</span>
         <h2>CLI Reference</h2>
       </div>
-      <p>All commands require root / Administrator privileges.</p>
+      <p>Run <code>codered-agent</code> without arguments to open the interactive management console. All functions are available from the main menu. You can also pass subcommands directly for scripting and automation.</p>
 
+      <h3>Interactive Menu</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Key</th><th>Menu Option</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>1</kbd></td><td>Scan Log Directories</td><td>Discover logs and choose which to monitor</td></tr>
+            <tr><td><kbd>2</kbd></td><td>Module Setup</td><td>Enable / disable monitoring modules</td></tr>
+            <tr><td><kbd>3</kbd></td><td>Agent Status</td><td>View service status and active modules</td></tr>
+            <tr><td><kbd>4</kbd></td><td>Agent Settings</td><td>Change manager IP, test connection, restart</td></tr>
+            <tr><td><kbd>5</kbd></td><td>Uninstall Agent</td><td>Fully remove CodeRed Agent from this system</td></tr>
+            <tr><td><kbd>0</kbd></td><td>Exit</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Direct Subcommands</h3>
+      <p>For scripting or automation, pass subcommands directly — no interactive menu:</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Command</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>scan</code></td><td>Scan endpoint for logs and choose which to monitor</td></tr>
-            <tr><td><code>setup</code></td><td>Interactive module enable/disable wizard</td></tr>
-            <tr><td><code>status</code></td><td>Show all module states and agent service status</td></tr>
-            <tr><td><code>enable &lt;module&gt;</code></td><td>Enable a specific module</td></tr>
-            <tr><td><code>disable &lt;module&gt;</code></td><td>Disable a specific module</td></tr>
-            <tr><td><code>restart</code></td><td>Apply config changes and restart the agent</td></tr>
+            <tr><td><code>codered-agent scan</code></td><td>Run log discovery directly</td></tr>
+            <tr><td><code>codered-agent setup</code></td><td>Open module setup wizard directly</td></tr>
+            <tr><td><code>codered-agent status</code></td><td>Print agent status and exit</td></tr>
+            <tr><td><code>codered-agent settings</code></td><td>Open settings screen directly</td></tr>
+            <tr><td><code>codered-agent uninstall</code></td><td>Run guided uninstall directly</td></tr>
+            <tr><td><code>codered-agent restart</code></td><td>Apply config and restart agent</td></tr>
+            <tr><td><code>codered-agent enable &lt;module&gt;</code></td><td>Enable a module non-interactively</td></tr>
+            <tr><td><code>codered-agent disable &lt;module&gt;</code></td><td>Disable a module non-interactively</td></tr>
           </tbody>
         </table>
       </div>
 
       <div class="code-block">
-        <div class="code-header"><span class="code-lang">bash — examples</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Run log discovery</span>
-sudo codered-agent scan
-
-<span class="t-dim"># Run module setup wizard</span>
-sudo codered-agent setup
-
-<span class="t-dim"># Check current status</span>
-sudo codered-agent status
-
-<span class="t-dim"># Enable vulnerability detection</span>
+        <div class="code-header"><span class="code-lang">bash — scripting examples</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Enable vulnerability detection non-interactively</span>
 sudo codered-agent enable vuln
 
 <span class="t-dim"># Disable active response</span>
 sudo codered-agent disable active-response
 
-<span class="t-dim"># Restart agent after manual config changes</span>
+<span class="t-dim"># Check status</span>
+sudo codered-agent status
+
+<span class="t-dim"># Restart agent</span>
 sudo codered-agent restart</pre>
       </div>
 
-      <h3>Status output</h3>
+      <h3>Agent Status output</h3>
       <div class="terminal">
         <div class="terminal-bar">
           <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
-          <span class="terminal-title">codered-agent status</span>
+          <span class="terminal-title">[3] Agent Status</span>
         </div>
-        <pre>  <span class="t-bright">Module Status</span>
+        <pre>  Service Status : <span class="t-green">active</span>
+  Manager IP     : <span class="t-cyan">10.0.0.1</span>
+  Config File    : <span class="t-dim">/var/ossec/etc/ossec.conf</span>
 
-  Module                    Status       Description
-  <span class="t-dim">────────────────────────────────────────────────────────────────────</span>
-  Log Collection            <span class="t-green">enabled</span>      Collect system &amp; application logs
-  File Integrity Monitoring <span class="t-green">enabled</span>      Detect file changes with checksums
-  System Inventory          <span class="t-green">enabled</span>      Hardware, OS, packages, processes
-  Threat Detection          <span class="t-green">enabled</span>      Rootkit, brute-force, MITRE ATT&amp;CK
-  Vulnerability Detection   <span class="t-red">disabled</span>     CVE mapping for installed packages
-  Compliance &amp; Auditing     <span class="t-red">disabled</span>     CIS Benchmark and custom SCA checks
-  Active Response           <span class="t-red">disabled</span>     Auto-block IPs, kill processes on alert
-
-  Agent service: <span class="t-green">active</span></pre>
+  <span class="t-bright">Module                         Status</span>
+  <span class="t-dim">────────────────────────────────────────────</span>
+  Log Collection                 <span class="t-green">enabled</span>
+  File Integrity Monitoring      <span class="t-green">enabled</span>
+  System Inventory               <span class="t-green">enabled</span>
+  Threat Detection               <span class="t-green">enabled</span>
+  Vulnerability Detection        <span class="t-red">disabled</span>
+  Compliance &amp; Auditing          <span class="t-red">disabled</span>
+  Active Response                <span class="t-red">disabled</span></pre>
       </div>
     </section>
 
@@ -1353,16 +1431,55 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
         <span class="section-num">10</span>
         <h2>Uninstalling</h2>
       </div>
-      <p>Use the one-line uninstall scripts below, or follow the manual steps. Both methods fully clean up the agent, CLI, config files, and service.</p>
+      <p>You can uninstall directly from the management console — no need to run a separate script.</p>
 
-      <h3>Linux — One-liner</h3>
+      <h3>Method 1 — Via Management Console (recommended)</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">linux</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>sudo codered-agent</pre>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-dim)">Then select <strong>[5] Uninstall Agent</strong> from the main menu. You will be shown a list of everything that will be removed, and must type <code>UNINSTALL</code> to confirm before anything is deleted.</p>
+
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="tbar-dot"></span><span class="tbar-dot"></span><span class="tbar-dot"></span>
+          <span class="terminal-title">[5] Uninstall Agent</span>
+        </div>
+        <pre>  <span class="t-yellow">Warning: This will remove CodeRed Server Agent from this system.</span>
+  <span class="t-yellow">All agent configuration and state will be deleted.</span>
+
+  Items to be removed:
+    <span class="t-red">•</span> Agent service and binaries
+    <span class="t-red">•</span> /var/ossec/etc/ossec.conf
+    <span class="t-red">•</span> /etc/codered/
+    <span class="t-red">•</span> /usr/local/bin/codered-agent
+
+  Type <span class="t-bright">UNINSTALL</span> to confirm, or press Enter to cancel: <span class="t-bright">UNINSTALL</span>
+
+  <span class="t-cyan">Stopping agent service...</span>
+  <span class="t-green">✔ Service stopped.</span>
+  <span class="t-cyan">Removing packages...</span>
+  <span class="t-cyan">Removing CodeRed files...</span>
+
+  <span class="t-green">✔ CodeRed Server Agent has been completely removed.</span></pre>
+      </div>
+
+      <h3>Method 2 — Linux one-liner script</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/uninstall-codered-agent.sh | sudo bash</pre>
       </div>
-      <p style="font-size:12.5px;color:var(--text-dim)">The script will ask for confirmation before removing anything. It stops the service, removes the package, deletes <code>/etc/codered</code>, removes the CLI binary, and cleans up the package repo.</p>
 
-      <h3>Linux — Manual steps</h3>
+      <h3>Method 2 — Windows script</h3>
+      <p>Open <strong>PowerShell as Administrator</strong>:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/uninstall-codered-agent.ps1 -OutFile uninstall-codered-agent.ps1
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\uninstall-codered-agent.ps1</pre>
+      </div>
+
+      <h3>Manual steps — Linux</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre><span class="t-dim"># Stop and disable service</span>
@@ -1375,37 +1492,22 @@ sudo yum remove codered-agent               <span class="t-dim"># CentOS/RHEL</s
 
 <span class="t-dim"># Remove CodeRed files</span>
 sudo rm -rf /etc/codered
-sudo rm -f /usr/local/bin/codered-agent
-
-<span class="t-dim"># Remove repo source</span>
-sudo rm -f /etc/apt/sources.list.d/wazuh.list
-sudo rm -f /usr/share/keyrings/wazuh.gpg</pre>
+sudo rm -f /usr/local/bin/codered-agent</pre>
       </div>
 
-      <h3>Windows — One-liner</h3>
-      <p>Open <strong>PowerShell as Administrator</strong> and run:</p>
+      <h3>Manual steps — Windows</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>Set-ExecutionPolicy Bypass -Scope Process -Force
-iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/uninstall-codered-agent.ps1 -OutFile uninstall-codered-agent.ps1
-.\uninstall-codered-agent.ps1</pre>
-      </div>
-      <p style="font-size:12.5px;color:var(--text-dim)">The script will confirm before proceeding. It stops the service, uninstalls via Windows registry, removes <code>C:\Program Files\CodeRed\</code>, and cleans up the system PATH.</p>
-
-      <h3>Windows — Manual steps</h3>
-      <div class="code-block">
-        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Step 1 — Stop the service</span>
+        <pre><span class="t-dim"># Stop the service</span>
 Stop-Service -Name "Wazuh" -Force
 Set-Service -Name "Wazuh" -StartupType Disabled
 
-<span class="t-dim"># Step 2 — Uninstall via Programs</span>
-<span class="t-dim"># Win + R → appwiz.cpl → find CodeRed Server Agent → Uninstall</span>
+<span class="t-dim"># Uninstall: Win + R → appwiz.cpl → find CodeRed Server Agent → Uninstall</span>
 
-<span class="t-dim"># Step 3 — Remove leftover files</span>
+<span class="t-dim"># Remove leftover files</span>
 Remove-Item -Recurse -Force "C:\Program Files\CodeRed" -ErrorAction SilentlyContinue
 
-<span class="t-dim"># Step 4 — Clean PATH</span>
+<span class="t-dim"># Clean PATH</span>
 $p = [Environment]::GetEnvironmentVariable("Path","Machine")
 $p = ($p -split ";" | Where-Object { $_ -notlike "*CodeRed*" }) -join ";"
 [Environment]::SetEnvironmentVariable("Path", $p, "Machine")</pre>
@@ -1413,7 +1515,7 @@ $p = ($p -split ";" | Where-Object { $_ -notlike "*CodeRed*" }) -join ";"
 
       <div class="callout tip">
         <span class="callout-icon">💡</span>
-        <span>After uninstalling, close and reopen PowerShell/Terminal to clear the old PATH entries from your current session.</span>
+        <span>After uninstalling, close and reopen your terminal to clear any old PATH entries from the current session.</span>
       </div>
     </section>
 
