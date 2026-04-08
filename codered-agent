@@ -172,7 +172,17 @@ def getch():
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-def clear(): os.system("cls" if sys.platform == "win32" else "clear")
+def clear():
+    # ANSI clear + cursor home — prevents auto-scroll to bottom in Windows Terminal
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        except Exception:
+            pass
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 def banner(subtitle=""):

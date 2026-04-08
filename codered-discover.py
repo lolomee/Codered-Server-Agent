@@ -317,7 +317,18 @@ def getch():
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 def clear_screen():
-    os.system("cls" if IS_WIN else "clear")
+    # ANSI: move cursor to top-left + clear screen — works on both
+    # Windows Terminal and Linux without causing auto-scroll to bottom
+    if IS_WIN:
+        # Enable ANSI on Windows if not already enabled
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        except Exception:
+            pass
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 # ── ossec.conf injection ──────────────────────────────────────────────────────
 def inject_into_conf(selected: list):
