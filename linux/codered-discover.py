@@ -119,30 +119,10 @@ def restore_perms():
     except Exception:
         pass
 
-def heal_conf():
-    if not os.path.exists(AGENT_CONF): return
-    with open(AGENT_CONF) as f: content = f.read()
-    def fix(m):
-        fmt = m.group(1).strip()
-        return f"<log_format>{fmt if fmt in VALID_FORMATS else 'syslog'}</log_format>"
-    fixed = re.sub(r"<log_format>(.*?)</log_format>", fix, content)
-    # Only normalise closing tag if count is wrong
-    # Do NOT normalize </ossec_config> count - Wazuh uses multiple blocks
-    if fixed != content:
-        shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-        tmp = AGENT_CONF + ".tmp"
-        with open(tmp, "w") as f:
-            f.write(fixed)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, AGENT_CONF)
-        restore_perms()
-        print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
-
+def heal_conf(): pass  # Removed - was corrupting ossec.conf structure
 def inject_into_conf(selected):
     if not os.path.exists(AGENT_CONF):
         print(f"{YELLOW}  Agent config not found. Skipping.{RESET}"); return
-    heal_conf()
     with open(AGENT_CONF) as f: conf = f.read()
     start_tag = "<!-- CodeRed Discovered Logs -->"
     end_tag   = "<!-- END:discovered-logs -->"
