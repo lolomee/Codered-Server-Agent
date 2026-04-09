@@ -94,26 +94,6 @@ case "$ID" in
 esac
 ok "Wazuh agent installed."
 
-# Fix ossec.conf multi-root XML issue
-# Wazuh on Ubuntu 24.04 generates two <ossec_config> blocks but only one </ossec_config>
-# wazuh-execd rejects this structure — merge into a single valid root
-log "Fixing ossec.conf XML structure..."
-python3 -c "
-import re
-with open('/var/ossec/etc/ossec.conf', 'r') as f:
-    content = f.read()
-inner = re.sub(r'</?ossec_config>', '', content)
-fixed = '<ossec_config>
-' + inner.strip() + '
-</ossec_config>
-'
-with open('/var/ossec/etc/ossec.conf', 'w') as f:
-    f.write(fixed)
-opens = fixed.count('<ossec_config>')
-closes = fixed.count('</ossec_config>')
-print(f'ossec.conf: {opens} open / {closes} close tags')
-" && ok "ossec.conf XML fixed." || warn "Could not fix ossec.conf XML."
-
 # Fix systemd WorkingDirectory so wazuh-execd can read ossec.conf via relative path
 log "Applying systemd WorkingDirectory fix..."
 mkdir -p /etc/systemd/system/wazuh-agent.service.d
