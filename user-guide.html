@@ -1409,71 +1409,105 @@ sudo codered-agent restart</pre>
         <h2>Troubleshooting</h2>
       </div>
 
-      <h3>Linux — Wrong manager IP / ossec.conf corrupted after install</h3>
-      <p>If you ran <code>curl ... | bash</code> instead of <code>bash &lt;(curl ...)</code>, the manager IP gets set incorrectly and breaks <code>ossec.conf</code>. Fix it:</p>
+      <h3>Linux — Correct installation order</h3>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Always follow this order after install — skipping steps causes agent failures.</span>
+      </div>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Fix manager IP and XML in one command</span>
-python3 -c "
-import re, shutil
-conf = '/var/ossec/etc/ossec.conf'
-with open(conf) as f: content = f.read()
-shutil.copy2(conf, conf + '.bak')
-content = re.sub(r'&lt;address&gt;.*?&lt;/address&gt;', '&lt;address&gt;103.13.123.89&lt;/address&gt;', content)
-content = content.replace('&lt;/ossec_config&gt;', '').rstrip() + '\n&lt;/ossec_config&gt;\n'
-with open(conf, 'w') as f: f.write(content)
-print('Fixed')
-" &amp;&amp; systemctl start wazuh-agent</pre>
+        <pre><span class="t-dim"># 1. Install</span>
+curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh | sudo bash
+
+<span class="t-dim"># 2. Open CLI</span>
+sudo codered-agent
+
+<span class="t-dim"># 3. Set Manager IP FIRST (registers agent, starts service)</span>
+<span class="t-green">→ [4] Settings → [1] Set Manager IP → enter your manager IP</span>
+
+<span class="t-dim"># 4. Run log discovery AFTER agent is running</span>
+<span class="t-green">→ [1] Scan Log Directories → select logs → confirm restart</span>
+
+<span class="t-dim"># 5. Enable modules (optional, no restart needed)</span>
+<span class="t-green">→ [2] Module Setup → toggle modules → Enter to save</span></pre>
       </div>
 
-      <h3>Agent not connecting to manager</h3>
+      <h3>Linux — Duplicate agent name error</h3>
+      <p>If you see <code>ERROR: Duplicate agent name</code> in <code>ossec.log</code>, the manager still has an old registration for this agent. Delete it from the manager first, then the agent will re-register automatically.</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Verify manager IP</span>
+        <pre><span class="t-dim"># On the MANAGER server — remove old agent registration</span>
+sudo /var/ossec/bin/manage_agents -l          <span class="t-dim"># find agent ID</span>
+sudo /var/ossec/bin/manage_agents -r &lt;ID&gt;    <span class="t-dim"># remove it</span>
+sudo systemctl restart wazuh-manager
+
+<span class="t-dim"># On the AGENT server — restart to re-register</span>
+sudo systemctl restart wazuh-agent
+tail -10 /var/ossec/logs/ossec.log</pre>
+      </div>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Once registered, the agent reuses its key on every restart — you only need to do this once per reinstall.</span>
+      </div>
+
+      <h3>Linux — wazuh-execd "Error reading XML file" (line 0)</h3>
+      <p>This error means <code>wazuh-execd</code> cannot read <code>ossec.conf</code>. Most common causes:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr><td>ossec.conf corrupted by log discovery scan</td><td>Reinstall — the installer purges and regenerates a clean config</td></tr>
+            <tr><td>Invalid <code>log_format</code> value in config</td><td>Reinstall — fixed in current version (nginx/mysql_log → syslog)</td></tr>
+            <tr><td><code>localfile</code> entries injected in wrong XML block</td><td>Fixed in current version — entries now injected into correct block</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Full clean reinstall to recover from corrupt ossec.conf</span>
+curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh?$(date +%s) | sudo bash</pre>
+      </div>
+
+      <h3>Linux — Agent not connecting to manager</h3>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Verify manager IP in config</span>
 grep "&lt;address&gt;" /var/ossec/etc/ossec.conf
 
 <span class="t-dim"># Test connectivity</span>
-nc -zv 103.13.123.89 1514
-nc -zv 103.13.123.89 1515
+nc -zv &lt;MANAGER_IP&gt; 1514   <span class="t-dim"># agent comms</span>
+nc -zv &lt;MANAGER_IP&gt; 1515   <span class="t-dim"># registration</span>
 
 <span class="t-dim"># Check agent log</span>
 tail -30 /var/ossec/logs/ossec.log</pre>
       </div>
 
-      <h3>Agent service not starting</h3>
+      <h3>Linux — Agent service not starting</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>systemctl status wazuh-agent --no-pager
 journalctl -xeu wazuh-agent --no-pager | tail -30
-sudo codered-agent restart</pre>
+tail -30 /var/ossec/logs/ossec.log</pre>
       </div>
 
-      <h3>Module changes not taking effect</h3>
-      <p>Always run <code>restart</code> after manual config edits:</p>
+      <h3>Linux — Log discovery crashes agent after restart</h3>
+      <p>Caused by invalid <code>log_format</code> values or injecting entries into the wrong XML block. Fixed in current version. If you hit this on an older install:</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>sudo codered-agent restart</pre>
+        <pre><span class="t-dim"># Fix invalid log_format values</span>
+sed -i 's|&lt;log_format&gt;nginx&lt;/log_format&gt;|&lt;log_format&gt;syslog&lt;/log_format&gt;|g' /var/ossec/etc/ossec.conf
+sed -i 's|&lt;log_format&gt;mysql_log&lt;/log_format&gt;|&lt;log_format&gt;syslog&lt;/log_format&gt;|g' /var/ossec/etc/ossec.conf
+
+<span class="t-dim"># Restart agent</span>
+sudo systemctl restart wazuh-agent</pre>
       </div>
 
-      <h3>Config file corrupted</h3>
-      <p>A backup is created automatically before every change:</p>
+      <h3>Linux — Log discovery shows reduced results</h3>
+      <p>The scan only shows log files that actually exist on this server. To see all possible sources:</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>sudo cp /var/ossec/etc/ossec.conf.bak /var/ossec/etc/ossec.conf
-sudo codered-agent restart</pre>
-      </div>
-
-      <h3>Log discovery shows no logs</h3>
-      <div class="code-block">
-        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre><span class="t-dim"># Check log directory</span>
-ls -lh /var/log/
-
-<span class="t-dim"># Check active services</span>
-systemctl list-units --type=service --state=active
-
-<span class="t-dim"># Re-run discovery</span>
-sudo codered-agent scan</pre>
+        <pre><span class="t-dim"># List all log files present on this system</span>
+find /var/log -maxdepth 3 -name "*.log" -o -name "*.err" 2>/dev/null | sort</pre>
       </div>
 
       <h3>Windows — ExecutionPolicy error</h3>
@@ -1489,7 +1523,7 @@ sudo codered-agent scan</pre>
       </div>
 
       <h3>Windows — Script not found error</h3>
-      <p>If you see <em>"is not recognized as the name of a cmdlet"</em>, PowerShell is running from the wrong directory. Navigate to where the script was downloaded first:</p>
+      <p>If you see <em>"is not recognized as the name of a cmdlet"</em>, navigate to the download directory first:</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>cd $env:USERPROFILE\Downloads
@@ -1515,6 +1549,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
     </section>
 
     <!-- 10 Uninstalling -->
+    <section class="section" <!-- 10 Uninstalling -->
     <section class="section" id="uninstall">
       <div class="section-header">
         <span class="section-num">10</span>
