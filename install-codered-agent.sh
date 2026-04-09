@@ -177,22 +177,27 @@ for tmpl in log-collection fim inventory threat vuln compliance active-response;
 done
 ok "Templates installed."
 
+# Force agent registration before starting
+# -F flag = force re-registration, overwriting duplicate on manager
+# This mirrors WAZUH_REGISTRATION_SERVER behaviour in the Windows MSI installer
+log "Registering agent with manager (force re-registration)..."
+if [[ -f "/var/ossec/bin/agent-auth" ]]; then
+  /var/ossec/bin/agent-auth -m "${MANAGER_IP}" -F 0 2>&1 | tail -3 || true
+  if [[ -s "/var/ossec/etc/client.keys" ]]; then
+    ok "Agent registered successfully."
+  else
+    warn "Registration pending - agent will retry on start."
+  fi
+else
+  warn "agent-auth not found - skipping pre-registration."
+fi
+
 # Start agent
 log "Starting agent service..."
 systemctl daemon-reload
 systemctl enable wazuh-agent
 if systemctl start wazuh-agent; then
   ok "Agent service started successfully."
-  # Wait for registration then lock client.keys as read-only
-  # so it survives restarts without triggering duplicate name
-  log "Waiting for agent registration..."
-  for i in $(seq 1 15); do
-    if [[ -s "/var/ossec/etc/client.keys" ]]; then
-      break
-    fi
-    sleep 1
-  done
-  [[ ! -s "/var/ossec/etc/client.keys" ]] && warn "Agent not yet registered - may need manager to accept it first."
 else
   warn "Agent failed to start. Last errors:"
   grep -i "error" /var/ossec/logs/ossec.log 2>/dev/null | tail -5 || true
