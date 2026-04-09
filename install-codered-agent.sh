@@ -231,21 +231,59 @@ for tmpl in "${TEMPLATES[@]}"; do
 done
 ok "Templates installed to ${TEMPLATES_DST}"
 
+# ── Final ossec.conf sanity check ────────────────────────────────────────────
+log "Final config check..."
+CONF_TAGS=$(grep -c "</ossec_config>" "$OSSEC_CONF" 2>/dev/null || echo "0")
+if [[ "$CONF_TAGS" -ne 1 ]]; then
+  warn "ossec.conf has ${CONF_TAGS} closing tag(s) — fixing..."
+  python3 << 'PYEOF'
+import re, shutil
+conf = '/var/ossec/etc/ossec.conf'
+with open(conf) as f: c = f.read()
+shutil.copy2(conf, conf+'.bak')
+# Fix invalid formats
+valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
+         'audit','json','iis','command','full_command','multi-line',
+         'snort-full','snort-fast','squid','ossec','djb-multilog','cisco-ios','cisco-asa'}
+def fix(m):
+    fmt = m.group(1).strip()
+    return '<log_format>' + (fmt if fmt in valid else 'syslog') + '</log_format>'
+c = re.sub(r'<log_format>(.*?)</log_format>', fix, c)
+# Fix closing tags
+c = c.replace('</ossec_config>','').rstrip() + '\n</ossec_config>\n'
+with open(conf,'w') as f: f.write(c)
+print('Fixed.')
+PYEOF
+fi
+
+# Verify XML is parseable
+python3 -c "
+import xml.etree.ElementTree as ET, sys
+try:
+    ET.parse('/var/ossec/etc/ossec.conf')
+    print('Config XML: OK')
+except ET.ParseError as e:
+    print(f'Config XML ERROR: {e}')
+    sys.exit(1)
+" || die "ossec.conf has XML errors. Check /var/ossec/etc/ossec.conf"
+
 # ── Enable & start agent ──────────────────────────────────────────────────────
 log "Enabling and starting agent service..."
 systemctl daemon-reload
 systemctl enable wazuh-agent
 systemctl start wazuh-agent
 
-# Wait a moment and check status
 sleep 3
 if systemctl is-active --quiet wazuh-agent; then
   ok "Agent service is running."
 else
-  warn "Agent service failed to start. Checking log..."
-  tail -10 /var/ossec/logs/ossec.log
+  warn "Agent service failed to start. Last log lines:"
   echo ""
-  warn "Run: journalctl -xeu wazuh-agent --no-pager | tail -20"
+  grep -i "error\|invalid\|failed" /var/ossec/logs/ossec.log | tail -5 || true
+  echo ""
+  warn "Diagnose with:"
+  warn "  tail -20 /var/ossec/logs/ossec.log"
+  warn "  journalctl -xeu wazuh-agent --no-pager | tail -20"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
