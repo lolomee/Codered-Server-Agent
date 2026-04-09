@@ -316,6 +316,10 @@ def read_conf() -> str:
 
 def write_conf(content: str) -> bool:
     """Write config to temp, validate, then atomically replace. Returns success."""
+    # Ensure exactly one </ossec_config> closing tag
+    content = content.replace("</ossec_config>", "").rstrip()
+    content = content + "\n</ossec_config>\n"
+
     tmp = AGENT_CONF + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -346,7 +350,9 @@ def inject_module(mid: str, conf: str) -> str:
         return conf
     with open(tmpl, encoding="utf-8") as f:
         block = f"\n  {tag}\n" + f.read() + f"\n  <!-- END:{mid} -->\n"
-    return conf.replace("</ossec_config>", block + "</ossec_config>")
+    # Strip any existing closing tag, append block, then re-add exactly one closing tag
+    conf = conf.replace("</ossec_config>", "").rstrip()
+    return conf + block + "\n</ossec_config>\n"
 
 def remove_module(mid: str, conf: str) -> str:
     tag     = MODULES[mid]["tag"]

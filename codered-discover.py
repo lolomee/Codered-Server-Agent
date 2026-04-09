@@ -415,7 +415,9 @@ def inject_into_conf(selected: list):
         )
     lines.append(f"  {end_tag}")
     block    = "\n".join(lines)
-    new_conf = conf.replace("</ossec_config>", block + "\n</ossec_config>")
+    # Strip all existing closing tags, add block, then re-add exactly one
+    new_conf = conf.replace("</ossec_config>", "").rstrip()
+    new_conf = new_conf + "\n" + block + "\n</ossec_config>\n"
 
     if skipped:
         print(f"{YELLOW}  ⚠ {skipped} log format(s) normalised to 'syslog' for compatibility.{RESET}")
