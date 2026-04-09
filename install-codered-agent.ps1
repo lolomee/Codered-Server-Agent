@@ -133,9 +133,26 @@ Write-Ok "Templates installed."
 
 # ── Start agent service ───────────────────────────────────────────────────────
 Write-Step "Starting CodeRed Agent service..."
-Start-Service -Name "Wazuh" -ErrorAction SilentlyContinue
-Set-Service  -Name "Wazuh" -StartupType Automatic
-Write-Ok "Agent service started."
+$svcName = $null
+foreach ($name in @("WazuhSvc", "Wazuh", "wazuh", "OssecSvc")) {
+    if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+        $svcName = $name
+        break
+    }
+}
+
+if ($svcName) {
+    try {
+        Set-Service  -Name $svcName -StartupType Automatic -ErrorAction Stop
+        Start-Service -Name $svcName -ErrorAction Stop
+        Write-Ok "Agent service '$svcName' started."
+    } catch {
+        Write-Warn "Could not start service '$svcName': $_"
+        Write-Warn "Try manually: sc start $svcName"
+    }
+} else {
+    Write-Warn "Agent service not found. The MSI may still be installing — wait a moment then run: sc start WazuhSvc"
+}
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 Remove-Item $INSTALLER -Force -ErrorAction SilentlyContinue
@@ -144,11 +161,11 @@ Remove-Item $INSTALLER -Force -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Run the setup wizard (open new PowerShell as Admin):"
-Write-Host "    codered-agent setup" -ForegroundColor Cyan
+Write-Host "  Open a new PowerShell as Administrator then run:" -ForegroundColor White
+Write-Host "    codered-agent" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Other commands:"
-Write-Host "    codered-agent status              - view module status" -ForegroundColor Cyan
-Write-Host "    codered-agent enable <module>     - enable a module" -ForegroundColor Cyan
-Write-Host "    codered-agent disable <module>    - disable a module" -ForegroundColor Cyan
+Write-Host "  Or direct commands:" -ForegroundColor White
+Write-Host "    codered-agent scan      - scan log directories" -ForegroundColor Cyan
+Write-Host "    codered-agent setup     - enable/disable modules" -ForegroundColor Cyan
+Write-Host "    codered-agent status    - view agent status" -ForegroundColor Cyan
 Write-Host ""
