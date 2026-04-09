@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 CodeRed Server Agent — Log Discovery Engine (Linux)
+Writes discovered logs to /var/ossec/etc/codered.conf (include file).
+Never modifies /var/ossec/etc/ossec.conf.
 """
 import os, sys, re, glob, shutil, subprocess
 
-AGENT_CONF = "/var/ossec/etc/ossec.conf"
+AGENT_CONF   = "/var/ossec/etc/ossec.conf"     # never modified
+CODERED_CONF = "/var/ossec/etc/codered.conf"   # our safe include file
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"
 CYAN="\033[96m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
@@ -21,36 +24,36 @@ VALID_FORMATS = {
 }
 
 LOG_CATALOGUE = [
-    {"path":"/var/log/auth.log",            "label":"Authentication Log",        "service":"ssh","priority":"high",   "format":"syslog",    "reason":"SSH logins, sudo, PAM auth failures"},
-    {"path":"/var/log/secure",              "label":"Secure Log (RHEL)",         "service":"ssh","priority":"high",   "format":"syslog",    "reason":"SSH/sudo on RHEL/CentOS"},
-    {"path":"/var/log/syslog",              "label":"System Log",                "service":"system","priority":"high","format":"syslog",    "reason":"General system events"},
-    {"path":"/var/log/messages",            "label":"System Messages (RHEL)",    "service":"system","priority":"high","format":"syslog",    "reason":"System messages on RHEL/CentOS"},
-    {"path":"/var/log/kern.log",            "label":"Kernel Log",                "service":"kernel","priority":"high","format":"syslog",    "reason":"Kernel events, OOM killer, hardware errors"},
-    {"path":"/var/log/audit/audit.log",     "label":"Linux Audit Log",           "service":"auditd","priority":"high","format":"audit",     "reason":"Syscall auditing, privilege escalation"},
-    {"path":"/var/log/ufw.log",             "label":"UFW Firewall Log",          "service":"ufw","priority":"high",   "format":"syslog",    "reason":"Firewall block/allow events"},
-    {"path":"/var/log/iptables.log",        "label":"iptables Log",              "service":"iptables","priority":"high","format":"syslog",  "reason":"Raw iptables packet events"},
-    {"path":"/var/log/firewalld",           "label":"FirewallD Log",             "service":"firewalld","priority":"high","format":"syslog", "reason":"Firewall events on RHEL/CentOS"},
-    {"path":"/var/log/fail2ban.log",        "label":"Fail2ban Log",              "service":"fail2ban","priority":"medium","format":"syslog","reason":"Banned IPs, brute-force events"},
-    {"path":"/var/log/apache2/access.log",  "label":"Apache Access Log",         "service":"apache2","priority":"medium","format":"apache", "reason":"HTTP requests — detect web attacks"},
-    {"path":"/var/log/apache2/error.log",   "label":"Apache Error Log",          "service":"apache2","priority":"medium","format":"apache", "reason":"Apache errors"},
-    {"path":"/var/log/httpd/access_log",    "label":"Apache Access (RHEL)",      "service":"httpd","priority":"medium","format":"apache",   "reason":"HTTP requests on RHEL/CentOS"},
-    {"path":"/var/log/nginx/access.log",    "label":"Nginx Access Log",          "service":"nginx","priority":"medium","format":"nginx",    "reason":"HTTP requests — detect web attacks"},
-    {"path":"/var/log/nginx/error.log",     "label":"Nginx Error Log",           "service":"nginx","priority":"medium","format":"nginx",    "reason":"Nginx errors"},
-    {"path":"/var/log/mysql/error.log",     "label":"MySQL Error Log",           "service":"mysql","priority":"medium","format":"mysql_log","reason":"MySQL auth failures"},
-    {"path":"/var/log/postgresql/postgresql-*.log","label":"PostgreSQL Log","service":"postgresql","priority":"medium","format":"syslog",  "reason":"PostgreSQL auth and errors"},
-    {"path":"/var/log/mongodb/mongod.log",  "label":"MongoDB Log",               "service":"mongodb","priority":"medium","format":"json",  "reason":"MongoDB auth events"},
-    {"path":"/var/log/dpkg.log",            "label":"Package Manager (dpkg)",    "service":"dpkg","priority":"medium","format":"syslog",   "reason":"Package installs/removals"},
-    {"path":"/var/log/yum.log",             "label":"Package Manager (yum)",     "service":"yum","priority":"medium","format":"syslog",    "reason":"Package changes on RHEL/CentOS"},
-    {"path":"/var/log/dnf.log",             "label":"Package Manager (dnf)",     "service":"dnf","priority":"medium","format":"syslog",    "reason":"Package changes on Fedora/RHEL8+"},
-    {"path":"/var/log/cron.log",            "label":"Cron Log",                  "service":"cron","priority":"medium","format":"syslog",   "reason":"Cron jobs — detect persistence"},
-    {"path":"/var/log/cron",                "label":"Cron Log (RHEL)",           "service":"cron","priority":"medium","format":"syslog",   "reason":"Cron jobs on RHEL/CentOS"},
-    {"path":"/var/log/mail.log",            "label":"Mail Log",                  "service":"postfix","priority":"low","format":"syslog",   "reason":"Mail delivery events"},
+    {"path":"/var/log/auth.log",            "label":"Authentication Log",     "service":"ssh",       "priority":"high",   "format":"syslog",    "reason":"SSH logins, sudo, PAM auth failures"},
+    {"path":"/var/log/secure",              "label":"Secure Log (RHEL)",      "service":"ssh",       "priority":"high",   "format":"syslog",    "reason":"SSH/sudo on RHEL/CentOS"},
+    {"path":"/var/log/syslog",              "label":"System Log",             "service":"system",    "priority":"high",   "format":"syslog",    "reason":"General system events"},
+    {"path":"/var/log/messages",            "label":"System Messages (RHEL)", "service":"system",    "priority":"high",   "format":"syslog",    "reason":"System messages on RHEL/CentOS"},
+    {"path":"/var/log/kern.log",            "label":"Kernel Log",             "service":"kernel",    "priority":"high",   "format":"syslog",    "reason":"Kernel events, OOM killer"},
+    {"path":"/var/log/audit/audit.log",     "label":"Linux Audit Log",        "service":"auditd",    "priority":"high",   "format":"audit",     "reason":"Syscall auditing, privilege escalation"},
+    {"path":"/var/log/ufw.log",             "label":"UFW Firewall Log",       "service":"ufw",       "priority":"high",   "format":"syslog",    "reason":"Firewall block/allow events"},
+    {"path":"/var/log/iptables.log",        "label":"iptables Log",           "service":"iptables",  "priority":"high",   "format":"syslog",    "reason":"Raw iptables packet events"},
+    {"path":"/var/log/fail2ban.log",        "label":"Fail2ban Log",           "service":"fail2ban",  "priority":"medium", "format":"syslog",    "reason":"Banned IPs, brute-force events"},
+    {"path":"/var/log/apache2/access.log",  "label":"Apache Access Log",      "service":"apache2",   "priority":"medium", "format":"apache",    "reason":"HTTP requests — detect web attacks"},
+    {"path":"/var/log/apache2/error.log",   "label":"Apache Error Log",       "service":"apache2",   "priority":"medium", "format":"apache",    "reason":"Apache errors"},
+    {"path":"/var/log/httpd/access_log",    "label":"Apache Access (RHEL)",   "service":"httpd",     "priority":"medium", "format":"apache",    "reason":"HTTP requests on RHEL"},
+    {"path":"/var/log/nginx/access.log",    "label":"Nginx Access Log",       "service":"nginx",     "priority":"medium", "format":"nginx",     "reason":"HTTP requests — detect web attacks"},
+    {"path":"/var/log/nginx/error.log",     "label":"Nginx Error Log",        "service":"nginx",     "priority":"medium", "format":"nginx",     "reason":"Nginx errors"},
+    {"path":"/var/log/mysql/error.log",     "label":"MySQL Error Log",        "service":"mysql",     "priority":"medium", "format":"mysql_log", "reason":"MySQL auth failures"},
+    {"path":"/var/log/postgresql/postgresql-*.log","label":"PostgreSQL Log",  "service":"postgresql","priority":"medium", "format":"syslog",    "reason":"PostgreSQL errors"},
+    {"path":"/var/log/mongodb/mongod.log",  "label":"MongoDB Log",            "service":"mongodb",   "priority":"medium", "format":"json",      "reason":"MongoDB auth events"},
+    {"path":"/var/log/dpkg.log",            "label":"Package Manager (dpkg)", "service":"dpkg",      "priority":"medium", "format":"syslog",    "reason":"Package installs/removals"},
+    {"path":"/var/log/yum.log",             "label":"Package Manager (yum)",  "service":"yum",       "priority":"medium", "format":"syslog",    "reason":"Package changes on RHEL"},
+    {"path":"/var/log/dnf.log",             "label":"Package Manager (dnf)",  "service":"dnf",       "priority":"medium", "format":"syslog",    "reason":"Package changes on Fedora"},
+    {"path":"/var/log/cron.log",            "label":"Cron Log",               "service":"cron",      "priority":"medium", "format":"syslog",    "reason":"Cron jobs — detect persistence"},
+    {"path":"/var/log/cron",                "label":"Cron Log (RHEL)",        "service":"cron",      "priority":"medium", "format":"syslog",    "reason":"Cron jobs on RHEL"},
+    {"path":"/var/log/mail.log",            "label":"Mail Log",               "service":"postfix",   "priority":"low",    "format":"syslog",    "reason":"Mail delivery events"},
 ]
 
 def get_active_services():
     try:
         out = subprocess.check_output(
-            ["systemctl","list-units","--type=service","--state=active","--no-pager","--plain","--no-legend"],
+            ["systemctl","list-units","--type=service","--state=active",
+             "--no-pager","--plain","--no-legend"],
             stderr=subprocess.DEVNULL, text=True)
         return {l.split()[0].replace(".service","") for l in out.splitlines() if l.strip()}
     except: return set()
@@ -111,106 +114,40 @@ def getch():
 
 def clear(): sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 
-def restore_perms():
-    """Restore correct Wazuh file ownership and permissions."""
+def write_codered_conf(content: str) -> bool:
+    """Write to codered.conf — our safe include file, never touching ossec.conf."""
     try:
-        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
-        os.chmod(AGENT_CONF, 0o660)
-    except Exception:
-        pass
-
-def heal_conf():
-    if not os.path.exists(AGENT_CONF): return
-    with open(AGENT_CONF) as f: content = f.read()
-    def fix(m):
-        fmt = m.group(1).strip()
-        return f"<log_format>{fmt if fmt in VALID_FORMATS else 'syslog'}</log_format>"
-    fixed = re.sub(r"<log_format>(.*?)</log_format>", fix, content)
-    # Only normalise closing tag if count is wrong
-    count = fixed.count("</ossec_config>")
-    if count != 1:
-        fixed = fixed.replace("</ossec_config>","").rstrip() + "\n</ossec_config>\n"
-    if fixed != content:
-        tmp = AGENT_CONF + ".heal_tmp"
-        try:
-            shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-            with open(tmp,"w") as f:
-                f.write(fixed)
-                f.flush()
-                os.fsync(f.fileno())
-            with open(tmp) as f: verify = f.read()
-            if "</ossec_config>" not in verify:
-                raise ValueError("Temp missing closing tag")
-            with open(AGENT_CONF,"w") as f:
-                f.write(verify)
-                f.flush()
-                os.fsync(f.fileno())
-            os.remove(tmp)
-            subprocess.run(["chown","root:wazuh",AGENT_CONF], capture_output=True)
-            os.chmod(AGENT_CONF, 0o660)
-            print(f"{GREEN}  ✔ Auto-fixed invalid log formats.{RESET}")
-        except Exception as ex:
-            print(f"{YELLOW}  Could not fix conf: {ex}{RESET}")
-            try: os.remove(tmp)
-            except: pass
+        with open(CODERED_CONF, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        subprocess.run(["chown","root:wazuh", CODERED_CONF], capture_output=True)
+        os.chmod(CODERED_CONF, 0o660)
+        return True
+    except Exception as ex:
+        print(f"{RED}  ✖ Write failed: {ex}{RESET}")
+        return False
 
 def inject_into_conf(selected):
-    if not os.path.exists(AGENT_CONF):
-        print(f"{YELLOW}  Agent config not found. Skipping.{RESET}"); return
-    heal_conf()
-    with open(AGENT_CONF) as f: conf = f.read()
-    start_tag = "<!-- CodeRed Discovered Logs -->"
-    end_tag   = "<!-- END:discovered-logs -->"
-    s, e = conf.find(start_tag), conf.find(end_tag)
-    if s != -1 and e != -1: conf = conf[:s] + conf[e+len(end_tag):]
-    lines = [f"  {start_tag}"]
+    """Write selected logs to codered.conf (include file)."""
+    lines = ["<ossec_config>", "  <!-- CodeRed Discovered Logs -->"]
     fixed = 0
     for item in selected:
         fmt = item["format"] if item["format"] in VALID_FORMATS else "syslog"
         if fmt != item["format"]: fixed += 1
-        lines.append(f"  <localfile>\n    <log_format>{fmt}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
-    lines.append(f"  {end_tag}")
-    block = "\n".join(lines)
-    # Insert block before the closing tag (replace first occurrence only)
-    if "</ossec_config>" in conf:
-        conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
-    else:
-        conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
+        lines.append(
+            f"  <localfile>\n"
+            f"    <log_format>{fmt}</log_format>\n"
+            f"    <location>{item['path']}</location>\n"
+            f"  </localfile>"
+        )
+    lines.append("  <!-- END:discovered-logs -->")
+    lines.append("</ossec_config>")
+    content = "\n".join(lines) + "\n"
+
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
-
-    # Final sanity checks before writing
-    if "</ossec_config>" not in conf:
-        print(f"{RED}  ✖ Missing closing tag — aborting.{RESET}"); return
-    if conf.count("</ossec_config>") > 1:
-        print(f"{RED}  ✖ Duplicate closing tag — aborting.{RESET}"); return
-
-    # Write in-place (preserves inode, AppArmor label, and security context)
-    tmp = AGENT_CONF + ".discover_tmp"
-    try:
-        shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
-        # Write full content to tmp first to verify no truncation
-        with open(tmp, "w") as f:
-            f.write(conf)
-            f.flush()
-            os.fsync(f.fileno())
-        # Verify tmp is complete before replacing live file
-        with open(tmp) as f:
-            verify = f.read()
-        if "</ossec_config>" not in verify:
-            raise ValueError("Temp file missing closing tag — aborting")
-        # Write in-place to preserve inode/security context
-        with open(AGENT_CONF, "w") as f:
-            f.write(verify)
-            f.flush()
-            os.fsync(f.fileno())
-        os.remove(tmp)
-        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
-        os.chmod(AGENT_CONF, 0o660)
-        print(f"{GREEN}  ✔ Config updated.{RESET}")
-    except Exception as ex:
-        print(f"{RED}  ✖ Write failed: {ex}{RESET}")
-        try: os.remove(tmp)
-        except: pass
+    if write_codered_conf(content):
+        print(f"{GREEN}  ✔ Config written to {CODERED_CONF}{RESET}")
 
 def present_ui(discovered, custom_logs):
     items = []
@@ -235,19 +172,19 @@ def present_ui(discovered, custom_logs):
         elif cursor >= vs + vp: vs = cursor - vp + 1
         ve = min(vs + vp, len(items))
         clear()
-        sys.stdout.write(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}\n")
-        sys.stdout.write(f"  {DIM}↑↓ move · Space toggle · A all · N none · Enter confirm · Q cancel{RESET}\n")
+        sys.stdout.write(f"\n{CYAN}{BOLD}  CodeRed Log Discovery — Linux{RESET}\n")
+        sys.stdout.write(f"  {DIM}↑↓ · Space toggle · A all · N none · Enter confirm · Q cancel{RESET}\n")
         if len(items) > vp:
             sys.stdout.write(f"  {DIM}Showing {vs+1}–{ve} of {len(items)}{RESET}\n")
-        prev_pri = None
+        prev = None
         for i in range(vs, ve):
             item = items[i]
-            if item["priority"] != prev_pri:
-                prev_pri = item["priority"]
+            if item["priority"] != prev:
+                prev = item["priority"]
                 sys.stdout.write(f"\n  {PRIORITY_LABELS[item['priority']]}\n\n")
             tick  = f"{GREEN}✔{RESET}" if item["selected"] else f"{RED}✖{RESET}"
             arrow = f"{CYAN}▶{RESET}" if i == cursor else " "
-            src   = f"{DIM}(service){RESET}" if item["source"]=="service" else ""
+            src   = f"{DIM}(service){RESET}" if item["source"] == "service" else ""
             hi    = BOLD if i == cursor else ""
             sys.stdout.write(f"  {arrow} [{tick}] {hi}{item['path']}{RESET} {src}\n")
             if i == cursor: sys.stdout.write(f"       {DIM}{item['reason']}{RESET}\n")
@@ -258,8 +195,8 @@ def present_ui(discovered, custom_logs):
     render()
     while True:
         ch = getch()
-        if   ch=="UP"   and cursor>0:             cursor-=1
-        elif ch=="DOWN" and cursor<len(items)-1:  cursor+=1
+        if   ch=="UP"   and cursor>0:            cursor-=1
+        elif ch=="DOWN" and cursor<len(items)-1: cursor+=1
         elif ch==" ":   items[cursor]["selected"] = not items[cursor]["selected"]
         elif ch.lower()=="a":
             for it in items: it["selected"]=True

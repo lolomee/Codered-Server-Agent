@@ -113,11 +113,30 @@ CONF_SIZE=$(wc -c < "$OSSEC_CONF")
 [[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is empty (${CONF_SIZE} bytes)."
 ok "ossec.conf: ${CONF_SIZE} bytes."
 
-# ── Set manager IP via sed (minimal, safe) ────────────────────────────────────
+# ── Set manager IP via sed ────────────────────────────────────────────────────
 log "Setting manager IP..."
 cp "$OSSEC_CONF" "${OSSEC_CONF}.bak"
 sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
-grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || warn "Manager IP may not be set — check ${OSSEC_CONF}"
+grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || warn "Check ${OSSEC_CONF} manually."
+
+# ── Add CodeRed include to ossec.conf (once, via sed) ─────────────────────────
+if ! grep -q "codered.conf" "$OSSEC_CONF"; then
+  log "Adding CodeRed include to ossec.conf..."
+  sed -i "s|</ossec_config>|  <include>codered.conf</include>\n</ossec_config>|" "$OSSEC_CONF"
+  ok "Include added."
+fi
+
+# ── Create empty codered.conf ─────────────────────────────────────────────────
+log "Creating codered.conf..."
+cat > /var/ossec/etc/codered.conf << 'EOF'
+<ossec_config>
+  <!-- CodeRed Server Agent configuration -->
+  <!-- Run: sudo codered-agent scan  to add log sources -->
+</ossec_config>
+EOF
+chown root:wazuh /var/ossec/etc/codered.conf
+chmod 660 /var/ossec/etc/codered.conf
+ok "codered.conf created."
 
 # ── Clear old agent keys to avoid duplicate name error ────────────────────────
 log "Clearing agent registration..."
