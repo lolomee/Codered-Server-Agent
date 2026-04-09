@@ -188,7 +188,6 @@ if systemctl start wazuh-agent; then
   log "Waiting for agent registration..."
   for i in $(seq 1 15); do
     if [[ -s "/var/ossec/etc/client.keys" ]]; then
-      chattr +i /var/ossec/etc/client.keys 2>/dev/null && ok "client.keys locked (immutable) - agent will reuse key on restart." || true
       break
     fi
     sleep 1
