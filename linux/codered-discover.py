@@ -111,17 +111,29 @@ def getch():
 
 def clear(): sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 
+def restore_perms():
+    """Restore correct Wazuh file ownership and permissions."""
+    try:
+        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+        os.chmod(AGENT_CONF, 0o660)
+    except Exception:
+        pass
+
 def heal_conf():
     if not os.path.exists(AGENT_CONF): return
     with open(AGENT_CONF) as f: content = f.read()
     def fix(m):
         fmt = m.group(1).strip()
         return f"<log_format>{fmt if fmt in VALID_FORMATS else 'syslog'}</log_format>"
-    fixed   = re.sub(r"<log_format>(.*?)</log_format>", fix, content)
-    fixed   = fixed.replace("</ossec_config>","").rstrip() + "\n</ossec_config>\n"
+    fixed = re.sub(r"<log_format>(.*?)</log_format>", fix, content)
+    # Only normalise closing tag if count is wrong
+    count = fixed.count("</ossec_config>")
+    if count != 1:
+        fixed = fixed.replace("</ossec_config>","").rstrip() + "\n</ossec_config>\n"
     if fixed != content:
         shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
         with open(AGENT_CONF,"w") as f: f.write(fixed)
+        restore_perms()
         print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
 
 def inject_into_conf(selected):
@@ -141,10 +153,15 @@ def inject_into_conf(selected):
         lines.append(f"  <localfile>\n    <log_format>{fmt}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
     lines.append(f"  {end_tag}")
     block = "\n".join(lines)
-    conf  = conf.replace("</ossec_config>","").rstrip() + "\n" + block + "\n</ossec_config>\n"
+    # Insert block before the closing tag (replace first occurrence only)
+    if "</ossec_config>" in conf:
+        conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
+    else:
+        conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
     shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
     with open(AGENT_CONF,"w") as f: f.write(conf)
+    restore_perms()
     print(f"{GREEN}  ✔ Config updated.{RESET}")
 
 def present_ui(discovered, custom_logs):
