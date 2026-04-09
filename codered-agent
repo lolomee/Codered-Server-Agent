@@ -96,6 +96,7 @@ VALID_FORMATS_LINUX = {
     "command", "full_command", "multi-line",
     "snort-full", "snort-fast", "squid", "ossec",
     "djb-multilog", "cisco-ios", "cisco-asa",
+    # 'plain' and 'journald' are NOT valid — journald uses <wodle> not <localfile>
 }
 
 def safe_format(fmt: str) -> str:

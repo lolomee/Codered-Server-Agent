@@ -340,6 +340,8 @@ VALID_FORMATS_LINUX = {
     "command", "full_command", "multi-line",
     "snort-full", "snort-fast", "squid", "ossec",
     "djb-multilog", "cisco-ios", "cisco-asa",
+    # NOTE: 'plain', 'journald' are NOT valid Wazuh log_format values
+    # journald is read via <wodle name="journald"> not <localfile>
 }
 
 def safe_format(fmt: str) -> str:
