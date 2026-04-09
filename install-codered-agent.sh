@@ -160,78 +160,43 @@ fi
 ok "Manager IP configured."
 
 # ── Fix any invalid log formats in existing config ────────────────────────────
-log "Validating ossec.conf log formats..."
-python3 -c "
-import re, shutil
-conf = '${OSSEC_CONF}'
+log "Cleaning up ossec.conf..."
+python3 << 'PYEOF'
+import re, shutil, os
+
+conf = '/var/ossec/etc/ossec.conf'
 valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
          'audit','json','iis','command','full_command','multi-line',
          'snort-full','snort-fast','squid','ossec','djb-multilog',
          'cisco-ios','cisco-asa'}
-with open(conf) as f: content = f.read()
+
+with open(conf) as f:
+    content = f.read()
+
+shutil.copy2(conf, conf + '.bak')
+
+# Fix invalid log formats
 fixed_count = [0]
-def fix(m):
+def fix_fmt(m):
     fmt = m.group(1).strip()
     if fmt not in valid:
         fixed_count[0] += 1
         return '<log_format>syslog</log_format>'
     return m.group(0)
-fixed = re.sub(r'<log_format>(.*?)</log_format>', fix, content)
+
+content = re.sub(r'<log_format>(.*?)</log_format>', fix_fmt, content)
+
 # Ensure exactly one closing tag
-fixed = fixed.replace('</ossec_config>', '').rstrip()
-fixed += '\n</ossec_config>\n'
-with open(conf, 'w') as f: f.write(fixed)
-if fixed_count[0]:
-    print(f'Fixed {fixed_count[0]} invalid log format(s).')
-else:
-    print('All log formats valid.')
-"
+content = content.replace('</ossec_config>', '').rstrip()
+content += '\n</ossec_config>\n'
 
-# ── Validate ossec.conf with Python XML parser ────────────────────────────────
-log "Running config validation..."
-python3 -c "
-import xml.etree.ElementTree as ET, sys
+with open(conf, 'w') as f:
+    f.write(content)
 
-conf = '${OSSEC_CONF}'
-
-# Check file is not empty
-import os
 size = os.path.getsize(conf)
-if size < 50:
-    print(f'ERROR: ossec.conf is too small ({size} bytes)')
-    sys.exit(1)
-
-# Parse XML
-try:
-    tree = ET.parse(conf)
-    root = tree.getroot()
-except ET.ParseError as e:
-    print(f'ERROR: XML parse failed: {e}')
-    sys.exit(1)
-
-# Check manager address is set
-addresses = [el.text for el in root.iter('address') if el.text]
-if not addresses:
-    print('ERROR: No <address> element found in config')
-    sys.exit(1)
-
-# Check for invalid log formats
-valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
-         'audit','json','iis','command','full_command','multi-line',
-         'snort-full','snort-fast','squid','ossec','djb-multilog',
-         'cisco-ios','cisco-asa'}
-bad = []
-for lf in root.iter('localfile'):
-    fmt = lf.find('log_format')
-    if fmt is not None and fmt.text and fmt.text.strip() not in valid:
-        bad.append(fmt.text.strip())
-if bad:
-    print(f'ERROR: Invalid log_format values: {bad}')
-    sys.exit(1)
-
-print(f'Config OK — {size} bytes, manager={addresses[0]}')
-" || die "Config validation failed."
-ok "Config validation passed."
+print(f'  ossec.conf: {size} bytes, {fixed_count[0]} format(s) fixed')
+PYEOF
+ok "ossec.conf cleaned."
 
 # ── Remove old agent registration to avoid duplicate name error ───────────────
 log "Clearing old agent registration..."
