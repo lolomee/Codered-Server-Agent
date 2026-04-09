@@ -126,7 +126,8 @@ def heal_conf():
         fmt = m.group(1).strip()
         return f"<log_format>{fmt if fmt in VALID_FORMATS else 'syslog'}</log_format>"
     fixed = re.sub(r"<log_format>(.*?)</log_format>", fix, content)
-    # Do NOT touch </ossec_config> count - Wazuh uses multiple blocks legitimately
+    # Only normalise closing tag if count is wrong
+    # Do NOT normalize </ossec_config> count - Wazuh uses multiple blocks
     if fixed != content:
         shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
         with open(AGENT_CONF,"w") as f: f.write(fixed)
@@ -150,7 +151,7 @@ def inject_into_conf(selected):
         lines.append(f"  <localfile>\n    <log_format>{fmt}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
     lines.append(f"  {end_tag}")
     block = "\n".join(lines)
-    # Insert block before the LAST </ossec_config> to handle Wazuh multi-block configs
+    # Insert block before the closing tag (replace first occurrence only)
     idx = conf.rfind("</ossec_config>")
     if idx != -1:
         conf = conf[:idx] + block + "\n</ossec_config>" + conf[idx+len("</ossec_config>"):]
