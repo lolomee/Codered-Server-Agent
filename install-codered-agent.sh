@@ -59,12 +59,24 @@ log "Manager IP: ${MANAGER_IP}"
 [[ -f /etc/os-release ]] && . /etc/os-release || die "Cannot detect OS."
 log "OS: ${ID} ${VERSION_ID}"
 
+# Stop existing agent if running
+systemctl stop wazuh-agent 2>/dev/null || true
+
+# Remove existing Wazuh agent fully to avoid duplicate name issues
+if dpkg -l wazuh-agent &>/dev/null 2>&1; then
+  log "Removing existing wazuh-agent..."
+  apt-get remove --purge -y wazuh-agent -qq 2>/dev/null || true
+  rm -rf /var/ossec /etc/ossec-init.conf
+  ok "Old agent removed."
+fi
+
 # Install Wazuh agent
 install_deb() {
   log "Adding Wazuh repository (apt)..."
   curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
   echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
   apt-get update -qq
+  # WAZUH_MANAGER env var tells Wazuh to set the address in ossec.conf natively - no manual editing needed
   WAZUH_MANAGER="${MANAGER_IP}" apt-get install -y wazuh-agent
 }
 
@@ -87,8 +99,6 @@ REPOEOF
   fi
 }
 
-systemctl stop wazuh-agent 2>/dev/null || true
-
 case "$ID" in
   ubuntu|debian)                       install_deb ;;
   centos|rhel|rocky|almalinux|fedora) install_rpm ;;
@@ -96,46 +106,30 @@ case "$ID" in
 esac
 ok "Wazuh agent installed."
 
-# Verify ossec.conf
+# Verify ossec.conf was written correctly by Wazuh
 [[ ! -f "$OSSEC_CONF" ]] && die "ossec.conf not found - Wazuh install failed."
 CONF_SIZE=$(wc -c < "$OSSEC_CONF")
 [[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is empty (${CONF_SIZE} bytes)."
 ok "ossec.conf: ${CONF_SIZE} bytes."
 
-# Set manager IP via Python
-log "Setting manager IP in ossec.conf..."
-cp "$OSSEC_CONF" "${OSSEC_CONF}.bak"
-
-python3 -c "
-import re, sys
-conf_path = '/var/ossec/etc/ossec.conf'
-manager_ip = sys.argv[1]
-with open(conf_path, 'r') as f:
-    content = f.read()
-new_content = re.sub(r'<address>[^<]*</address>', '<address>' + manager_ip + '</address>', content)
-if manager_ip not in new_content:
-    new_content = new_content.replace('<client>', '<client>\n    <address>' + manager_ip + '</address>', 1)
-with open(conf_path, 'w') as f:
-    f.write(new_content)
-print('Manager IP set to: ' + manager_ip)
-" "$MANAGER_IP"
-
-# Validate XML after edit
-if python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" 2>/dev/null; then
-  ok "ossec.conf XML valid."
+# Verify manager IP is present (set by WAZUH_MANAGER during install)
+if grep -q "${MANAGER_IP}" "$OSSEC_CONF"; then
+  ok "Manager IP ${MANAGER_IP} confirmed in ossec.conf."
 else
-  warn "XML check failed - using sed fallback..."
-  cp "${OSSEC_CONF}.bak" "$OSSEC_CONF"
-  sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
-  ok "Manager IP set via sed fallback."
+  warn "Manager IP not found - setting manually..."
+  python3 -c "
+import re, sys
+with open('$OSSEC_CONF', 'r') as f: c = f.read()
+c = re.sub(r'<address>[^<]*</address>', '<address>${MANAGER_IP}</address>', c)
+with open('$OSSEC_CONF', 'w') as f: f.write(c)
+print('Done')
+"
 fi
 
-grep -q "$MANAGER_IP" "$OSSEC_CONF" && ok "Manager IP confirmed." || warn "Check $OSSEC_CONF manually."
-
-# Clear old agent keys
-log "Clearing agent registration keys..."
-rm -f /var/ossec/etc/client.keys
-ok "Agent keys cleared."
+# Validate XML
+python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" \
+  && ok "ossec.conf XML valid." \
+  || die "ossec.conf XML is invalid after install. Run: python3 -c \"import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')\""
 
 # Install CodeRed CLI
 log "Installing CodeRed CLI..."
