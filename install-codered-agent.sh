@@ -24,7 +24,36 @@ banner() {
   printf "%b\n" "${RESET}"
 }
 
-# Root check
+fix_ossec_conf() {
+  # Wazuh on Ubuntu 24.04 with WAZUH_MANAGER env var sometimes appends
+  # a second block after </ossec_config>, creating an invalid double-root XML.
+  # Fix: keep only content up to and including the first </ossec_config>.
+  python3 -c "
+conf = open('$OSSEC_CONF', 'r').read()
+marker = '</ossec_config>'
+idx = conf.find(marker)
+if idx != -1:
+    fixed = conf[:idx + len(marker)] + '\n'
+    if fixed != conf:
+        open('$OSSEC_CONF', 'w').write(fixed)
+        print('Fixed: truncated junk after </ossec_config>')
+    else:
+        print('No fix needed.')
+else:
+    print('WARNING: </ossec_config> not found in ossec.conf')
+"
+}
+
+set_manager_ip() {
+  python3 -c "
+import re
+with open('$OSSEC_CONF', 'r') as f: c = f.read()
+c = re.sub(r'<address>[^<]*</address>', '<address>$MANAGER_IP</address>', c)
+with open('$OSSEC_CONF', 'w') as f: f.write(c)
+print('Manager IP set.')
+"
+}
+
 [[ $EUID -ne 0 ]] && die "Please run as root."
 
 banner
@@ -49,7 +78,6 @@ if [[ -z "$MANAGER_IP" ]]; then
   read -rp "" MANAGER_IP < /dev/tty
   [[ -z "$MANAGER_IP" ]] && die "Manager IP is required."
 fi
-
 if [[ "$MANAGER_IP" =~ [[:space:]] ]] || [[ ${#MANAGER_IP} -gt 253 ]]; then
   die "Invalid Manager IP: ${MANAGER_IP}"
 fi
@@ -59,10 +87,8 @@ log "Manager IP: ${MANAGER_IP}"
 [[ -f /etc/os-release ]] && . /etc/os-release || die "Cannot detect OS."
 log "OS: ${ID} ${VERSION_ID}"
 
-# Stop existing agent if running
+# Stop and fully purge old agent to avoid duplicate name
 systemctl stop wazuh-agent 2>/dev/null || true
-
-# Remove existing Wazuh agent fully to avoid duplicate name issues
 if dpkg -l wazuh-agent &>/dev/null 2>&1; then
   log "Removing existing wazuh-agent..."
   apt-get remove --purge -y wazuh-agent -qq 2>/dev/null || true
@@ -76,7 +102,6 @@ install_deb() {
   curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
   echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
   apt-get update -qq
-  # WAZUH_MANAGER env var tells Wazuh to set the address in ossec.conf natively - no manual editing needed
   WAZUH_MANAGER="${MANAGER_IP}" apt-get install -y wazuh-agent
 }
 
@@ -106,30 +131,30 @@ case "$ID" in
 esac
 ok "Wazuh agent installed."
 
-# Verify ossec.conf was written correctly by Wazuh
+# Verify ossec.conf exists
 [[ ! -f "$OSSEC_CONF" ]] && die "ossec.conf not found - Wazuh install failed."
 CONF_SIZE=$(wc -c < "$OSSEC_CONF")
 [[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is empty (${CONF_SIZE} bytes)."
 ok "ossec.conf: ${CONF_SIZE} bytes."
 
-# Verify manager IP is present (set by WAZUH_MANAGER during install)
+# Fix double-root XML bug (Ubuntu 24.04 + WAZUH_MANAGER env var)
+log "Fixing ossec.conf XML structure..."
+fix_ossec_conf
+
+# Ensure manager IP is set
 if grep -q "${MANAGER_IP}" "$OSSEC_CONF"; then
   ok "Manager IP ${MANAGER_IP} confirmed in ossec.conf."
 else
-  warn "Manager IP not found - setting manually..."
-  python3 -c "
-import re, sys
-with open('$OSSEC_CONF', 'r') as f: c = f.read()
-c = re.sub(r'<address>[^<]*</address>', '<address>${MANAGER_IP}</address>', c)
-with open('$OSSEC_CONF', 'w') as f: f.write(c)
-print('Done')
-"
+  warn "Manager IP missing - setting via Python..."
+  set_manager_ip
 fi
 
-# Validate XML
-python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" \
-  && ok "ossec.conf XML valid." \
-  || die "ossec.conf XML is invalid after install. Run: python3 -c \"import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')\""
+# Final XML validation
+if python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" 2>/dev/null; then
+  ok "ossec.conf XML is valid."
+else
+  die "ossec.conf is still invalid. Run: sed -n '183,187p' $OSSEC_CONF"
+fi
 
 # Install CodeRed CLI
 log "Installing CodeRed CLI..."
