@@ -81,23 +81,14 @@ def read_conf():
     with open(AGENT_CONF) as f: return f.read()
 
 def write_conf_bash(content: str) -> bool:
-    """
-    Write to ossec.conf using bash cat redirect (not Python open).
-    Python's open() disrupts file attributes that wazuh-execd needs.
-    Bash's > operator preserves them.
-    """
-    # Sanity checks before writing
+    """Write to ossec.conf via bash cat redirect."""
     if not content.strip():
         print(f"{RED}  ✖ Content is empty — aborting.{RESET}"); return False
     if "</ossec_config>" not in content:
         print(f"{RED}  ✖ Missing closing tag — aborting.{RESET}"); return False
-    if content.count("</ossec_config>") > 1:
-        print(f"{RED}  ✖ Duplicate closing tag — aborting.{RESET}"); return False
-
-    # Backup
+    # Fix duplicates automatically instead of aborting
+    content = normalise_conf(content)
     subprocess.run(["cp", AGENT_CONF, AGENT_CONF + ".bak"], capture_output=True)
-
-    # Write via bash cat redirect (preserves file attributes Python open() disrupts)
     result = subprocess.run(
         ["bash", "-c", f"cat > {AGENT_CONF}"],
         input=content.encode("utf-8"),
@@ -105,8 +96,6 @@ def write_conf_bash(content: str) -> bool:
     )
     if result.returncode != 0:
         print(f"{RED}  ✖ Write failed: {result.stderr.decode()}{RESET}"); return False
-
-    # Restore ownership and permissions
     subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
     os.chmod(AGENT_CONF, 0o660)
     return True
@@ -140,24 +129,22 @@ def inject_module(mid, conf):
     return conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
 
 def apply_state(state: dict) -> bool:
-    """
-    Only inject log-collection entries into ossec.conf.
-    Other modules (fim, inventory, threat, vuln, compliance, active-response)
-    are already configured in Wazuh's default ossec.conf — we just track
-    their state in state.json without touching ossec.conf.
-    """
     conf = read_conf()
     if not conf:
         print(f"{YELLOW}  Config not found at {AGENT_CONF}{RESET}"); return False
 
-    # Remove only previously injected log-collection block
+    # Fix any duplicate closing tags first
+    conf = heal_formats(conf)
+    conf = normalise_conf(conf)
+
+    # Remove previous log-collection block only
     start_tag = "<!-- MODULE:log-collection -->"
     end_tag   = "<!-- END:log-collection -->"
     s, e = conf.find(start_tag), conf.find(end_tag)
     if s != -1 and e != -1:
         conf = conf[:s] + conf[e + len(end_tag):]
 
-    # Only inject log-collection if enabled
+    # Only inject log-collection template if enabled
     if "log-collection" in state["enabled"]:
         tmpl = os.path.join(TEMPLATES_DIR, "log-collection.xml")
         if os.path.exists(tmpl):
