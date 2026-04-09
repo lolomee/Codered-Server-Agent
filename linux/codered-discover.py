@@ -131,10 +131,21 @@ def heal_conf():
     if count != 1:
         fixed = fixed.replace("</ossec_config>","").rstrip() + "\n</ossec_config>\n"
     if fixed != content:
-        shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-        with open(AGENT_CONF,"w") as f: f.write(fixed)
-        restore_perms()
-        print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
+        tmp = AGENT_CONF + ".heal_tmp"
+        try:
+            shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
+            with open(tmp,"w") as f:
+                f.write(fixed)
+                f.flush()
+                os.fsync(f.fileno())
+            subprocess.run(["chown","root:wazuh",tmp], capture_output=True)
+            os.chmod(tmp, 0o660)
+            shutil.move(tmp, AGENT_CONF)
+            print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
+        except Exception as ex:
+            print(f"{YELLOW}  Could not fix conf: {ex}{RESET}")
+            try: os.remove(tmp)
+            except: pass
 
 def inject_into_conf(selected):
     if not os.path.exists(AGENT_CONF):
@@ -159,10 +170,29 @@ def inject_into_conf(selected):
     else:
         conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
-    shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-    with open(AGENT_CONF,"w") as f: f.write(conf)
-    restore_perms()
-    print(f"{GREEN}  ✔ Config updated.{RESET}")
+
+    # Final sanity checks before writing
+    if "</ossec_config>" not in conf:
+        print(f"{RED}  ✖ Missing closing tag — aborting.{RESET}"); return
+    if conf.count("</ossec_config>") > 1:
+        print(f"{RED}  ✖ Duplicate closing tag — aborting.{RESET}"); return
+
+    # Write to temp file first, then atomically move (prevents truncation)
+    tmp = AGENT_CONF + ".discover_tmp"
+    try:
+        shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+        with open(tmp, "w") as f:
+            f.write(conf)
+            f.flush()
+            os.fsync(f.fileno())  # ensure data hits disk before move
+        subprocess.run(["chown", "root:wazuh", tmp], capture_output=True)
+        os.chmod(tmp, 0o660)
+        shutil.move(tmp, AGENT_CONF)
+        print(f"{GREEN}  ✔ Config updated.{RESET}")
+    except Exception as ex:
+        print(f"{RED}  ✖ Write failed: {ex}{RESET}")
+        try: os.remove(tmp)
+        except: pass
 
 def present_ui(discovered, custom_logs):
     items = []
