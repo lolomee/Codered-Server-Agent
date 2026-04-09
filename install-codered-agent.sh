@@ -206,17 +206,14 @@ ok "Agent keys cleared (will re-register with manager)."
 # ── Install CodeRed CLI ───────────────────────────────────────────────────────
 log "Installing CodeRed CLI..."
 mkdir -p "${INSTALL_DIR}" "${TEMPLATES_DST}"
-curl -fsSL "${REPO_BASE}/codered-agent" -o "${CLI_BIN}"
+curl -fsSL "${REPO_BASE}/linux/codered-agent" -o "${CLI_BIN}"
 chmod +x "${CLI_BIN}"
-
-# Set correct python3 path in shebang
 PYTHON3_PATH="$(command -v python3)"
 sed -i "1s|.*|#!${PYTHON3_PATH}|" "${CLI_BIN}"
 ok "CLI installed to ${CLI_BIN}"
 
-# ── Install log discovery engine ──────────────────────────────────────────────
 log "Installing log discovery engine..."
-curl -fsSL "${REPO_BASE}/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
+curl -fsSL "${REPO_BASE}/linux/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
 chmod +x "${INSTALL_DIR}/codered-discover.py"
 ok "Log discovery engine installed."
 

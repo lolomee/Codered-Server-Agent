@@ -103,7 +103,8 @@ New-Item -ItemType Directory -Force -Path $TEMPLATES_DIR | Out-Null
 
 # ── Download CLI, discover engine and templates ───────────────────────────────
 Write-Step "Installing CodeRed CLI..."
-Invoke-WebRequest -Uri "$REPO_BASE/codered-agent" -OutFile $CLI_SCRIPT -UseBasicParsing
+Invoke-WebRequest -Uri "$REPO_BASE/windows/codered-agent.py" -OutFile $CLI_SCRIPT -UseBasicParsing
+Invoke-WebRequest -Uri "$REPO_BASE/windows/codered-discover.py" -OutFile "$INSTALL_DIR\codered-discover.py" -UseBasicParsing
 
 Write-Step "Installing log discovery engine..."
 Invoke-WebRequest -Uri "$REPO_BASE/codered-discover.py" -OutFile "$INSTALL_DIR\codered-discover.py" -UseBasicParsing
