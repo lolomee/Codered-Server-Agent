@@ -17,7 +17,7 @@ banner() {
   echo -e "${CYAN}${BOLD}"
   echo "  ____          _      ____          _"
   echo " / ___|___   __| | ___|  _ \\ ___  __| |"
-  echo "| |   / _ \\ / _\` |/ _ \\ |_) / _ \\/ _\` |"
+  echo "| |   / _ \\ / _` |/ _ \\ |_) / _ \\/ _` |"
   echo "| |__| (_) | (_| |  __/  _ <  __/ (_| |"
   echo " \\____\\___/ \\__,_|\\___|_| \\_\\___|\\__,_|"
   echo ""
@@ -113,11 +113,35 @@ CONF_SIZE=$(wc -c < "$OSSEC_CONF")
 [[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is empty (${CONF_SIZE} bytes)."
 ok "ossec.conf: ${CONF_SIZE} bytes."
 
-# ── Set manager IP via sed ────────────────────────────────────────────────────
+# ── Validate ossec.conf XML before editing ────────────────────────────────────
+log "Validating ossec.conf XML..."
+python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" 2>/dev/null \
+  || die "ossec.conf is not valid XML — Wazuh install may be corrupt. Check the file manually."
+ok "XML valid."
+
+# ── Set manager IP via Python (safe XML-aware substitution) ───────────────────
 log "Setting manager IP..."
 cp "$OSSEC_CONF" "${OSSEC_CONF}.bak"
-sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
-grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || warn "Check ${OSSEC_CONF} manually."
+python3 - <<PYEOF
+import re
+conf_path = "$OSSEC_CONF"
+manager_ip = "$MANAGER_IP"
+with open(conf_path, 'r') as f:
+    content = f.read()
+new_content = re.sub(r'<address>[^<]*</address>', f'<address>{manager_ip}</address>', content)
+with open(conf_path, 'w') as f:
+    f.write(new_content)
+print(f"Manager IP set to: {manager_ip}")
+PYEOF
+
+# ── Validate ossec.conf XML after editing ─────────────────────────────────────
+log "Validating ossec.conf XML after IP substitution..."
+python3 -c "import xml.etree.ElementTree as ET; ET.parse('$OSSEC_CONF')" 2>/dev/null || {
+  warn "ossec.conf XML is invalid after IP substitution — restoring backup."
+  cp "${OSSEC_CONF}.bak" "$OSSEC_CONF"
+  die "Backup restored. Please set manager IP manually in $OSSEC_CONF"
+}
+grep -q "$MANAGER_IP" "$OSSEC_CONF" && ok "Manager IP set." || warn "Check ${OSSEC_CONF} manually."
 
 # ── Clear old agent keys to avoid duplicate name error ────────────────────────
 log "Clearing agent registration..."
@@ -151,9 +175,9 @@ log "Starting agent service..."
 systemctl daemon-reload
 systemctl enable wazuh-agent
 systemctl start wazuh-agent && ok "Agent service started." || {
-  warn "Agent failed to start. Error:"
-  grep -i "error" /var/ossec/logs/ossec.log | tail -3 || true
-  warn "Fix with: tail -20 /var/ossec/logs/ossec.log"
+  warn "Agent failed to start. Check logs:"
+  grep -i "error" /var/ossec/logs/ossec.log | tail -5 || true
+  warn "Full log: tail -50 /var/ossec/logs/ossec.log"
 }
 
 # ── Done ──────────────────────────────────────────────────────────────────────
