@@ -1,7 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # CodeRed Server Agent — Linux Installer
-# Supports: Ubuntu 20.04/22.04, Debian 11/12, CentOS/RHEL 8/9, Fedora
 # ─────────────────────────────────────────────────────────────────────────────
 set -e
 
@@ -32,7 +31,7 @@ warn() { echo -e "${YELLOW}[!]${RESET} $*"; }
 die()  { echo -e "${RED}[✖]${RESET} $*"; exit 1; }
 
 # ── Root check ────────────────────────────────────────────────────────────────
-[[ $EUID -ne 0 ]] && die "Please run as root: sudo bash install-codered-agent.sh"
+[[ $EUID -ne 0 ]] && die "Please run as root."
 
 banner
 
@@ -41,47 +40,31 @@ log "Checking dependencies..."
 for dep in curl gpg python3; do
   if ! command -v "$dep" &>/dev/null; then
     warn "$dep not found — installing..."
-    if command -v apt-get &>/dev/null; then
-      apt-get install -y "$dep" -qq
-    elif command -v dnf &>/dev/null; then
-      dnf install -y "$dep" -q
-    elif command -v yum &>/dev/null; then
-      yum install -y "$dep" -q
-    else
-      die "Cannot install $dep — please install it manually and re-run."
+    if command -v apt-get &>/dev/null; then apt-get install -y "$dep" -qq
+    elif command -v dnf &>/dev/null; then dnf install -y "$dep" -q
+    elif command -v yum &>/dev/null; then yum install -y "$dep" -q
+    else die "Cannot install $dep — install it manually and re-run."
     fi
   fi
 done
-ok "All dependencies satisfied."
+ok "Dependencies OK."
 
-# ── Prompt for Manager IP ─────────────────────────────────────────────────────
-# ── Prompt for Manager IP ─────────────────────────────────────────────────────
+# ── Manager IP ────────────────────────────────────────────────────────────────
 if [[ -z "$MANAGER_IP" ]]; then
   echo -e "${BOLD}  Enter your CodeRed Manager IP or hostname:${RESET}"
   read -rp "  > " MANAGER_IP < /dev/tty
   [[ -z "$MANAGER_IP" ]] && die "Manager IP is required."
 fi
 
-# Validate it looks like an IP or hostname (not a script line)
-if [[ "$MANAGER_IP" =~ [^a-zA-Z0-9._-] ]]; then
-  die "Invalid Manager IP: '${MANAGER_IP}'. Use CODERED_MANAGER_IP=x.x.x.x bash <(curl -s ...) to avoid stdin issues."
+# Validate IP/hostname (no spaces or special chars)
+if [[ "$MANAGER_IP" =~ [[:space:]] ]] || [[ ${#MANAGER_IP} -gt 253 ]]; then
+  die "Invalid Manager IP: '${MANAGER_IP}'. Use CODERED_MANAGER_IP=x.x.x.x bash <(curl ...)"
 fi
-log "Manager: ${BOLD}${MANAGER_IP}${RESET}"
+log "Manager IP: ${BOLD}${MANAGER_IP}${RESET}"
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────
-if [[ -f /etc/os-release ]]; then
-  . /etc/os-release
-  OS_ID=$ID
-else
-  die "Cannot detect OS."
-fi
-log "Detected OS: ${OS_ID}"
-
-# ── Remove existing agent cleanly ─────────────────────────────────────────────
-if systemctl is-active --quiet wazuh-agent 2>/dev/null; then
-  log "Stopping existing agent..."
-  systemctl stop wazuh-agent || true
-fi
+[[ -f /etc/os-release ]] && . /etc/os-release || die "Cannot detect OS."
+log "OS: ${ID} ${VERSION_ID}"
 
 # ── Install Wazuh agent ───────────────────────────────────────────────────────
 install_deb() {
@@ -114,100 +97,32 @@ EOF
   fi
 }
 
-case "$OS_ID" in
-  ubuntu|debian)          install_deb ;;
-  centos|rhel|rocky|almalinux|fedora) install_rpm ;;
-  *) die "Unsupported OS: ${OS_ID}" ;;
+# Stop existing agent if running
+systemctl stop wazuh-agent 2>/dev/null || true
+
+case "$ID" in
+  ubuntu|debian)                         install_deb ;;
+  centos|rhel|rocky|almalinux|fedora)   install_rpm ;;
+  *) die "Unsupported OS: ${ID}" ;;
 esac
-ok "Wazuh agent package installed."
+ok "Wazuh agent installed."
 
-# ── Validate ossec.conf was created ──────────────────────────────────────────
-if [[ ! -f "$OSSEC_CONF" ]]; then
-  die "ossec.conf not found at ${OSSEC_CONF} — Wazuh install may have failed."
-fi
-
+# ── Verify ossec.conf ─────────────────────────────────────────────────────────
+[[ ! -f "$OSSEC_CONF" ]] && die "ossec.conf not found — Wazuh install failed."
 CONF_SIZE=$(wc -c < "$OSSEC_CONF")
-if [[ "$CONF_SIZE" -lt 100 ]]; then
-  die "ossec.conf is empty or too small (${CONF_SIZE} bytes). Wazuh install failed."
-fi
-ok "ossec.conf exists and has content (${CONF_SIZE} bytes)."
+[[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is empty (${CONF_SIZE} bytes)."
+ok "ossec.conf: ${CONF_SIZE} bytes."
 
-# ── Set manager IP ────────────────────────────────────────────────────────────
-log "Setting manager IP to ${MANAGER_IP}..."
-if grep -q "<address>" "$OSSEC_CONF"; then
-  sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
-else
-  sed -i "s|MANAGER_IP|${MANAGER_IP}|g" "$OSSEC_CONF"
-fi
+# ── Set manager IP via sed (minimal, safe) ────────────────────────────────────
+log "Setting manager IP..."
+cp "$OSSEC_CONF" "${OSSEC_CONF}.bak"
+sed -i "s|<address>.*</address>|<address>${MANAGER_IP}</address>|g" "$OSSEC_CONF"
+grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || warn "Manager IP may not be set — check ${OSSEC_CONF}"
 
-# Verify the IP was set
-if ! grep -q "${MANAGER_IP}" "$OSSEC_CONF"; then
-  warn "Could not verify manager IP in config. Adding manually..."
-  # Add client block if missing
-  python3 -c "
-content = open('${OSSEC_CONF}').read()
-client_block = '''
-  <client>
-    <server>
-      <address>${MANAGER_IP}</address>
-      <port>1514</port>
-      <protocol>tcp</protocol>
-    </server>
-    <enrollment>
-      <enabled>yes</enabled>
-    </enrollment>
-  </client>'''
-if '<client>' not in content:
-    content = content.replace('</ossec_config>', client_block + '\n</ossec_config>')
-    open('${OSSEC_CONF}', 'w').write(content)
-    print('Client block added.')
-"
-fi
-ok "Manager IP configured."
-
-# ── Fix any invalid log formats in existing config ────────────────────────────
-log "Cleaning up ossec.conf..."
-python3 << 'PYEOF'
-import re, shutil, os
-
-conf = '/var/ossec/etc/ossec.conf'
-valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
-         'audit','json','iis','command','full_command','multi-line',
-         'snort-full','snort-fast','squid','ossec','djb-multilog',
-         'cisco-ios','cisco-asa'}
-
-with open(conf) as f:
-    content = f.read()
-
-shutil.copy2(conf, conf + '.bak')
-
-# Fix invalid log formats
-fixed_count = [0]
-def fix_fmt(m):
-    fmt = m.group(1).strip()
-    if fmt not in valid:
-        fixed_count[0] += 1
-        return '<log_format>syslog</log_format>'
-    return m.group(0)
-
-content = re.sub(r'<log_format>(.*?)</log_format>', fix_fmt, content)
-
-# Ensure exactly one closing tag
-content = content.replace('</ossec_config>', '').rstrip()
-content += '\n</ossec_config>\n'
-
-with open(conf, 'w') as f:
-    f.write(content)
-
-size = os.path.getsize(conf)
-print(f'  ossec.conf: {size} bytes, {fixed_count[0]} format(s) fixed')
-PYEOF
-ok "ossec.conf cleaned."
-
-# ── Remove old agent registration to avoid duplicate name error ───────────────
-log "Clearing old agent registration..."
+# ── Clear old agent keys to avoid duplicate name error ────────────────────────
+log "Clearing agent registration..."
 rm -f /var/ossec/etc/client.keys
-ok "Agent keys cleared (will re-register with manager)."
+ok "Agent keys cleared."
 
 # ── Install CodeRed CLI ───────────────────────────────────────────────────────
 log "Installing CodeRed CLI..."
@@ -216,90 +131,40 @@ curl -fsSL "${REPO_BASE}/linux/codered-agent" -o "${CLI_BIN}"
 chmod +x "${CLI_BIN}"
 PYTHON3_PATH="$(command -v python3)"
 sed -i "1s|.*|#!${PYTHON3_PATH}|" "${CLI_BIN}"
-ok "CLI installed to ${CLI_BIN}"
+ok "CLI installed."
 
+# ── Install discovery engine ──────────────────────────────────────────────────
 log "Installing log discovery engine..."
 curl -fsSL "${REPO_BASE}/linux/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
 chmod +x "${INSTALL_DIR}/codered-discover.py"
-ok "Log discovery engine installed."
+ok "Discovery engine installed."
 
-# ── Download module templates ─────────────────────────────────────────────────
+# ── Download templates ────────────────────────────────────────────────────────
 log "Downloading Linux module templates..."
-TEMPLATES=(log-collection fim inventory threat vuln compliance active-response)
-for tmpl in "${TEMPLATES[@]}"; do
+for tmpl in log-collection fim inventory threat vuln compliance active-response; do
   curl -fsSL "${REPO_BASE}/templates/linux/${tmpl}.xml" -o "${TEMPLATES_DST}/${tmpl}.xml"
 done
-ok "Templates installed to ${TEMPLATES_DST}"
+ok "Templates installed."
 
-# ── Final ossec.conf sanity check ────────────────────────────────────────────
-log "Final config check..."
-CONF_TAGS=$(grep -c "</ossec_config>" "$OSSEC_CONF" 2>/dev/null || echo "0")
-if [[ "$CONF_TAGS" -ne 1 ]]; then
-  warn "ossec.conf has ${CONF_TAGS} closing tag(s) — fixing..."
-  python3 << 'PYEOF'
-import re, shutil
-conf = '/var/ossec/etc/ossec.conf'
-with open(conf) as f: c = f.read()
-shutil.copy2(conf, conf+'.bak')
-# Fix invalid formats
-valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
-         'audit','json','iis','command','full_command','multi-line',
-         'snort-full','snort-fast','squid','ossec','djb-multilog','cisco-ios','cisco-asa'}
-def fix(m):
-    fmt = m.group(1).strip()
-    return '<log_format>' + (fmt if fmt in valid else 'syslog') + '</log_format>'
-c = re.sub(r'<log_format>(.*?)</log_format>', fix, c)
-# Fix closing tags
-c = c.replace('</ossec_config>','').rstrip() + '\n</ossec_config>\n'
-with open(conf,'w') as f: f.write(c)
-print('Fixed.')
-PYEOF
-fi
-
-# Verify XML is parseable
-python3 -c "
-import xml.etree.ElementTree as ET, sys
-try:
-    ET.parse('/var/ossec/etc/ossec.conf')
-    print('Config XML: OK')
-except ET.ParseError as e:
-    print(f'Config XML ERROR: {e}')
-    sys.exit(1)
-" || die "ossec.conf has XML errors. Check /var/ossec/etc/ossec.conf"
-
-# ── Enable & start agent ──────────────────────────────────────────────────────
-log "Enabling and starting agent service..."
+# ── Start agent ───────────────────────────────────────────────────────────────
+log "Starting agent service..."
 systemctl daemon-reload
 systemctl enable wazuh-agent
-systemctl start wazuh-agent
-
-sleep 3
-if systemctl is-active --quiet wazuh-agent; then
-  ok "Agent service is running."
-else
-  warn "Agent service failed to start. Last log lines:"
-  echo ""
-  grep -i "error\|invalid\|failed" /var/ossec/logs/ossec.log | tail -5 || true
-  echo ""
-  warn "Diagnose with:"
-  warn "  tail -20 /var/ossec/logs/ossec.log"
-  warn "  journalctl -xeu wazuh-agent --no-pager | tail -20"
-fi
+systemctl start wazuh-agent && ok "Agent service started." || {
+  warn "Agent failed to start. Error:"
+  grep -i "error" /var/ossec/logs/ossec.log | tail -3 || true
+  warn "Fix with: tail -20 /var/ossec/logs/ossec.log"
+}
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  Installation complete!${RESET}"
 echo ""
-echo -e "  Launch management console:"
+echo -e "  Run the management console:"
 echo -e "    ${CYAN}${BOLD}sudo codered-agent${RESET}"
 echo ""
-echo -e "  Or direct commands:"
-echo -e "    ${CYAN}sudo codered-agent scan${RESET}       — Scan & choose log sources"
-echo -e "    ${CYAN}sudo codered-agent setup${RESET}      — Enable/disable modules"
-echo -e "    ${CYAN}sudo codered-agent status${RESET}     — View agent status"
-echo ""
 
-read -rp "  Run log discovery scan now? (recommended) [Y/n]: " RUN_SCAN
+read -rp "  Run log discovery scan now? [Y/n]: " RUN_SCAN < /dev/tty
 if [[ "${RUN_SCAN,,}" != "n" ]]; then
   echo ""
   "${CLI_BIN}" scan
