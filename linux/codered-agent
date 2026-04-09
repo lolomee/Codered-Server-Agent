@@ -248,7 +248,7 @@ def menu_settings():
             ip=input("\n  Enter Manager IP or hostname: ").strip()
             if ip:
                 state["manager_ip"]=ip; save_state(state)
-                # Update ossec.conf safely using Python regex (sed can corrupt XML)
+                # Update ossec.conf safely using Python regex
                 try:
                     with open(AGENT_CONF, "r") as f: conf = f.read()
                     import re as _re
@@ -257,10 +257,26 @@ def menu_settings():
                     print(f"\n{GREEN}  ✔ Manager IP updated to: {ip}{RESET}")
                 except Exception as e:
                     print(f"\n{RED}  ✖ Could not update ossec.conf: {e}{RESET}")
-                    print(f"  {YELLOW}Set manually: sudo sed -i 's|<address>.*</address>|<address>{ip}</address>|g' {AGENT_CONF}{RESET}")
-                # Clear keys and restart so agent re-registers with new manager
+
+                # Stop agent, clear keys, register fresh with -F (force override duplicate)
+                subprocess.run(["systemctl","stop",SVC_NAME], capture_output=True)
                 clear_agent_keys()
-                restart_agent(clear_keys=False)
+                print(f"  {DIM}Registering agent with manager (force mode)...{RESET}")
+                reg = subprocess.run(
+                    ["/var/ossec/bin/agent-auth", "-m", ip, "-F", "0"],
+                    capture_output=True, text=True
+                )
+                if reg.returncode == 0 or os.path.getsize("/var/ossec/etc/client.keys") > 0:
+                    print(f"{GREEN}  ✔ Agent registered successfully.{RESET}")
+                else:
+                    print(f"{YELLOW}  ⚠ Registration output: {reg.stderr.strip()[-200:]}{RESET}")
+                    print(f"  {DIM}Check manager is running and port 1515 is open.{RESET}")
+                # Start agent
+                try:
+                    subprocess.run(["systemctl","start",SVC_NAME], check=True)
+                    print(f"{GREEN}  ✔ Agent started.{RESET}")
+                except subprocess.CalledProcessError:
+                    print(f"{RED}  ✖ Failed to start agent. Check: journalctl -xeu {SVC_NAME}{RESET}")
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
         elif ch=="2":
             ip=state.get("manager_ip","")
