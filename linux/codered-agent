@@ -108,20 +108,22 @@ def heal_formats(content):
     return re.sub(r"<log_format>(.*?)</log_format>", fix, content)
 
 def validate_conf(content):
-    """Validate config XML by writing to temp file and parsing it."""
+    """Validate config by writing to temp file and parsing with ET.parse."""
     if not content or len(content.strip()) < 10:
         return False, "Config content is empty"
-    if "<ossec_config>" not in content and "<ossec_config " not in content:
-        return False, "Missing <ossec_config> root element"
     if "</ossec_config>" not in content:
         return False, "Missing </ossec_config> closing tag"
-    # Write to temp and parse (handles XML declarations, encoding correctly)
     tmp = AGENT_CONF + ".validate_tmp"
     try:
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write(content)
+        # Use ET.parse (not fromstring) — handles XML comments before root element
         ET.parse(tmp)
+        # Restore permissions
+        import subprocess
+        subprocess.run(["chown","root:wazuh", tmp], capture_output=True)
         os.remove(tmp)
+        return True, ""
     except ET.ParseError as e:
         try: os.remove(tmp)
         except: pass
@@ -130,10 +132,6 @@ def validate_conf(content):
         try: os.remove(tmp)
         except: pass
         return False, f"Validation error: {e}"
-    # Check log formats
-    for lf in ET.fromstring(content.encode()).iter("localfile") if False else []:
-        pass  # skip format check here, handled by heal_formats before write
-    return True, ""
 
 def write_conf(content):
     content = heal_formats(content)
@@ -144,8 +142,16 @@ def write_conf(content):
         return False
     tmp = AGENT_CONF + ".tmp"
     shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
-    with open(tmp, "w") as f: f.write(content)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
     shutil.move(tmp, AGENT_CONF)
+    # Restore Wazuh ownership and permissions
+    try:
+        import subprocess
+        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+        os.chmod(AGENT_CONF, 0o660)
+    except Exception:
+        pass
     return True
 
 def remove_module(mid, conf):
