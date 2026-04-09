@@ -189,11 +189,12 @@ else:
 
 # ── Validate with wazuh-agentd -t ────────────────────────────────────────────
 log "Running config validation..."
-if /var/ossec/bin/wazuh-agentd -t 2>&1; then
+if cd /var/ossec && /var/ossec/bin/wazuh-agentd -t 2>&1; then
   ok "Config validation passed."
 else
   die "Config validation failed. Check ${OSSEC_CONF}"
 fi
+cd - > /dev/null
 
 # ── Remove old agent registration to avoid duplicate name error ───────────────
 log "Clearing old agent registration..."

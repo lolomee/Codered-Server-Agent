@@ -306,7 +306,8 @@ def validate_conf(conf_path: str) -> tuple:
                 try:
                     shutil.copy2(live_conf, backup)
                     shutil.copy2(conf_path, live_conf)
-                    r = subprocess.run([binary, "-t"], capture_output=True, text=True)
+                    r = subprocess.run([binary, "-t"], capture_output=True, text=True,
+                                       cwd="/var/ossec")
                     shutil.copy2(backup, live_conf)
                     try: os.remove(backup)
                     except: pass

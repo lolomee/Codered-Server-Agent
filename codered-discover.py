@@ -391,7 +391,8 @@ def validate_ossec_conf(conf_path: str) -> tuple:
                     shutil.copy2(live_conf, backup)
                     shutil.copy2(conf_path, live_conf)
                     r = subprocess.run([binary, "-t"],
-                                       capture_output=True, text=True)
+                                       capture_output=True, text=True,
+                                       cwd="/var/ossec")
                     shutil.copy2(backup, live_conf)  # always restore
                     os.remove(backup)
 
