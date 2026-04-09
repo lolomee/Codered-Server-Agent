@@ -82,6 +82,8 @@ def clear_agent_keys():
     keys_path = "/var/ossec/etc/client.keys"
     try:
         if os.path.exists(keys_path):
+            # Remove immutable flag if set (chattr +i)
+            subprocess.run(["chattr", "-i", keys_path], capture_output=True)
             os.remove(keys_path)
             print(f"  {DIM}Agent keys cleared (will re-register with manager).{RESET}")
     except Exception as e:
