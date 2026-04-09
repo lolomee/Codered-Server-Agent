@@ -783,10 +783,11 @@
       <p>Your CodeRed Manager must be running and reachable from the endpoint before installing the agent.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Port</th><th>Protocol</th><th>Purpose</th></tr></thead>
+          <thead><tr><th>Item</th><th>Value</th></tr></thead>
           <tbody>
-            <tr><td><code>1514</code></td><td>TCP/UDP</td><td>Agent communication</td></tr>
-            <tr><td><code>1515</code></td><td>TCP</td><td>Agent registration</td></tr>
+            <tr><td>Manager IP</td><td><code>103.13.123.89</code></td></tr>
+            <tr><td>Agent comm port</td><td><code>1514</code> TCP/UDP</td></tr>
+            <tr><td>Registration port</td><td><code>1515</code> TCP</td></tr>
           </tbody>
         </table>
       </div>
@@ -796,10 +797,10 @@
         <table>
           <thead><tr><th>Requirement</th><th>Minimum</th></tr></thead>
           <tbody>
-            <tr><td>OS</td><td>Ubuntu 20.04+, Debian 11+, CentOS/RHEL 8+</td></tr>
+            <tr><td>OS</td><td>Ubuntu 20.04+, Debian 11+, CentOS/RHEL 8+, Fedora</td></tr>
             <tr><td>Python</td><td>3.6+</td></tr>
             <tr><td>Access</td><td>Root (sudo)</td></tr>
-            <tr><td>Network</td><td>Outbound TCP 1514/1515 to CodeRed Manager</td></tr>
+            <tr><td>Network</td><td>Outbound TCP 1514/1515 to <code>103.13.123.89</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -811,11 +812,16 @@
           <tbody>
             <tr><td>OS</td><td>Windows Server 2016+, Windows 10+</td></tr>
             <tr><td>PowerShell</td><td>5.0+</td></tr>
-            <tr><td>Python</td><td>3.6+</td></tr>
+            <tr><td>Python</td><td>3.6+ (auto-installed if missing)</td></tr>
             <tr><td>Access</td><td>Administrator</td></tr>
-            <tr><td>Network</td><td>Outbound TCP 1514/1515 to CodeRed Manager</td></tr>
+            <tr><td>Network</td><td>Outbound TCP 1514/1515 to <code>103.13.123.89</code></td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <span>Linux and Windows use <strong>completely separate scripts</strong> — <code>linux/codered-agent</code> for Linux and <code>windows/codered-agent.py</code> for Windows. Each installer downloads the correct version automatically.</span>
       </div>
     </section>
 
@@ -828,23 +834,23 @@
 
       <div class="callout info">
         <span class="callout-icon">ℹ️</span>
-        <span>Use the <strong>Linux installer</strong> (<code>.sh</code>) on Linux systems only. Use the <strong>Windows installer</strong> (<code>.ps1</code>) on Windows. They are not interchangeable.</span>
+        <span>Use the <strong>Linux installer</strong> (<code>.sh</code>) on Linux only. Use the <strong>Windows installer</strong> (<code>.ps1</code>) on Windows. They download completely separate scripts for each OS — they are not interchangeable.</span>
       </div>
 
       <!-- Linux -->
-      <h3>Linux (Ubuntu / Debian / CentOS / RHEL)</h3>
-      <p>Open a terminal and run as root. You will be prompted for your CodeRed Manager IP.</p>
+      <h3>Linux (Ubuntu / Debian / CentOS / RHEL / Fedora)</h3>
+      <p>Open a terminal and run as root. Manager IP is pre-configured:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash — with manager IP</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>CODERED_MANAGER_IP=<span class="t-yellow">103.13.123.89</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
+      </div>
+
+      <p>Or without pre-setting (will prompt for IP during install):</p>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh | sudo bash</pre>
       </div>
-
-      <p>To pass the Manager IP directly (for scripted/silent deployments):</p>
-      <div class="code-block">
-        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>CODERED_MANAGER_IP=<span class="t-yellow">10.0.0.1</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
-      </div>
-      <p style="font-size:12.5px;color:var(--text-dim)">The installer will: detect your distro → add CodeRed package repo → install agent → install <code>codered-agent</code> CLI → download templates and log discovery engine → start service → prompt for log scan.</p>
+      <p style="font-size:12.5px;color:var(--text-dim)">The installer: detects distro → installs agent package → sets manager IP → auto-fixes log formats → installs <code>codered-agent</code> CLI → downloads Linux-specific templates and discovery engine → clears old agent keys → starts service.</p>
 
       <!-- Windows -->
       <h3>Windows (Server 2016+ / Windows 10+)</h3>
@@ -861,29 +867,21 @@
 .\install-codered-agent.ps1</pre>
       </div>
 
+      <p style="font-size:12.5px;color:var(--text-dim)">The installer: checks for Python (auto-installs if missing) → downloads agent MSI → installs silently with manager IP → installs Windows-specific CLI and discovery engine → downloads Windows templates → starts service.</p>
+
       <div class="callout warning">
         <span class="callout-icon">⚠️</span>
-        <span>Do <strong>not</strong> use <code>curl</code> on Windows — it is an alias for <code>Invoke-WebRequest</code> and behaves differently. Do <strong>not</strong> pipe directly with <code>| iex</code> as antivirus software (Bitdefender, Defender) may block it. Always download the script first with <code>iwr ... -OutFile</code>, then run it locally.</span>
+        <span>Do <strong>not</strong> use <code>curl</code> on Windows — it is an alias for <code>Invoke-WebRequest</code>. Do <strong>not</strong> pipe with <code>| iex</code> as antivirus (Bitdefender, Defender) may block it. Always download first with <code>iwr ... -OutFile</code>, then run locally.</span>
       </div>
 
-      <p style="font-size:12.5px;color:var(--text-dim)">The installer will: check for Python (auto-installs if missing) → download the agent MSI → install silently → install <code>codered-agent</code> CLI → download templates → start service → prompt for log scan.</p>
-
-      <!-- Quick reference table -->
+      <!-- Quick reference -->
       <h3>Quick Reference</h3>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>OS</th><th>Script</th><th>How to run</th></tr></thead>
+          <thead><tr><th>OS</th><th>Script</th><th>CLI installed as</th><th>Manager IP</th></tr></thead>
           <tbody>
-            <tr>
-              <td>Linux</td>
-              <td><code>install-codered-agent.sh</code></td>
-              <td><code>curl -s ... | sudo bash</code></td>
-            </tr>
-            <tr>
-              <td>Windows</td>
-              <td><code>install-codered-agent.ps1</code></td>
-              <td><code>iwr ... -OutFile script.ps1</code> then <code>.\script.ps1</code></td>
-            </tr>
+            <tr><td>Linux</td><td><code>install-codered-agent.sh</code></td><td><code>/usr/local/bin/codered-agent</code></td><td><code>103.13.123.89</code></td></tr>
+            <tr><td>Windows</td><td><code>install-codered-agent.ps1</code></td><td><code>C:\Program Files\CodeRed\Agent\codered-agent.cmd</code></td><td><code>103.13.123.89</code></td></tr>
           </tbody>
         </table>
       </div>
