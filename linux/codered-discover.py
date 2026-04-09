@@ -19,7 +19,7 @@ PRIORITY_LABELS  = {"high":f"{RED}🔴 HIGH PRIORITY{RESET}","medium":f"{YELLOW}
 PRIORITY_DEFAULT = {"high":True,"medium":True,"low":False}
 
 VALID_FORMATS = {
-    "syslog","auth","apache","nginx","mysql_log","postgresql_log",
+    "syslog","auth","apache","postgresql_log",
     "audit","json","iis","command","full_command","multi-line",
     "snort-full","snort-fast","squid","ossec","djb-multilog",
     "cisco-ios","cisco-asa",
@@ -38,9 +38,9 @@ LOG_CATALOGUE = [
     {"path":"/var/log/apache2/access.log",  "label":"Apache Access Log",      "service":"apache2",   "priority":"medium", "format":"apache",    "reason":"HTTP requests — detect web attacks"},
     {"path":"/var/log/apache2/error.log",   "label":"Apache Error Log",       "service":"apache2",   "priority":"medium", "format":"apache",    "reason":"Apache errors"},
     {"path":"/var/log/httpd/access_log",    "label":"Apache Access (RHEL)",   "service":"httpd",     "priority":"medium", "format":"apache",    "reason":"HTTP requests on RHEL"},
-    {"path":"/var/log/nginx/access.log",    "label":"Nginx Access Log",       "service":"nginx",     "priority":"medium", "format":"nginx",     "reason":"HTTP requests — detect web attacks"},
-    {"path":"/var/log/nginx/error.log",     "label":"Nginx Error Log",        "service":"nginx",     "priority":"medium", "format":"nginx",     "reason":"Nginx errors"},
-    {"path":"/var/log/mysql/error.log",     "label":"MySQL Error Log",        "service":"mysql",     "priority":"medium", "format":"mysql_log", "reason":"MySQL auth failures"},
+    {"path":"/var/log/nginx/access.log",    "label":"Nginx Access Log",       "service":     "priority":"medium", "format":"syslog",     "reason":"HTTP requests — detect web attacks"},
+    {"path":"/var/log/nginx/error.log",     "label":"Nginx Error Log",        "service":     "priority":"medium", "format":"syslog",     "reason":"Nginx errors"},
+    {"path":"/var/log/mysql/error.log",     "label":"MySQL Error Log",        "service":"mysql",     "priority":"medium", "format":"syslog", "reason":"MySQL auth failures"},
     {"path":"/var/log/postgresql/postgresql-*.log","label":"PostgreSQL Log",  "service":"postgresql","priority":"medium", "format":"syslog",    "reason":"PostgreSQL errors"},
     {"path":"/var/log/mongodb/mongod.log",  "label":"MongoDB Log",            "service":"mongodb",   "priority":"medium", "format":"json",      "reason":"MongoDB auth events"},
     {"path":"/var/log/dpkg.log",            "label":"Package Manager (dpkg)", "service":"dpkg",      "priority":"medium", "format":"syslog",    "reason":"Package installs/removals"},
