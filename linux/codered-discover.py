@@ -156,11 +156,21 @@ def inject_into_conf(selected):
         lines.append(f"  <localfile>\n    <log_format>{fmt}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
     lines.append(f"  {end_tag}")
     block = "\n".join(lines)
-    # Append as a NEW <ossec_config> block at end of file.
-    # Never inject inside existing blocks — Wazuh's multi-block format
-    # means inserting inside an <active-response> block causes execd to
-    # reject 'log_format' as invalid in that context.
-    conf = conf.rstrip() + "\n\n<ossec_config>\n" + block + "\n</ossec_config>\n"
+    # Inject into the existing <ossec_config> block that already contains
+    # <localfile> entries. Find the </ossec_config> that closes the block
+    # containing the last existing <localfile> entry and insert before it.
+    # This avoids creating a new block which execd rejects in some Wazuh versions.
+    last_lf = conf.rfind("<localfile>")
+    if last_lf != -1:
+        # Find the closing </ossec_config> after the last <localfile>
+        insert_at = conf.find("</ossec_config>", last_lf)
+        if insert_at != -1:
+            conf = conf[:insert_at] + block + "\n  " + conf[insert_at:]
+        else:
+            conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
+    else:
+        # No existing localfile block — append new block
+        conf = conf.rstrip() + "\n<ossec_config>\n" + block + "\n</ossec_config>\n"
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
     shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
     # Atomic write: write to temp file then rename to avoid truncation on error
