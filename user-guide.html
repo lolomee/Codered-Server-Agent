@@ -839,18 +839,18 @@
 
       <!-- Linux -->
       <h3>Linux (Ubuntu / Debian / CentOS / RHEL / Fedora)</h3>
-      <p>Open a terminal and run as root. Manager IP is pre-configured:</p>
+      <p>Open a terminal and run as root. Use the <code>bash &lt;(curl ...)</code> syntax — do <strong>not</strong> use <code>curl | bash</code> as it breaks interactive prompts:</p>
       <div class="code-block">
-        <div class="code-header"><span class="code-lang">bash — with manager IP</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <div class="code-header"><span class="code-lang">bash — recommended (manager IP pre-set)</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
         <pre>CODERED_MANAGER_IP=<span class="t-yellow">103.13.123.89</span> bash &lt;(curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh)</pre>
       </div>
 
-      <p>Or without pre-setting (will prompt for IP during install):</p>
-      <div class="code-block">
-        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>curl -s https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.sh | sudo bash</pre>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span>Always use <code>CODERED_MANAGER_IP=... bash &lt;(curl ...)</code> — <strong>never</strong> <code>curl ... | bash</code>. When piped, bash reads the script from stdin, so interactive <code>read</code> prompts pick up script lines instead of your keyboard input, corrupting the manager IP in the config.</span>
       </div>
-      <p style="font-size:12.5px;color:var(--text-dim)">The installer: detects distro → installs agent package → sets manager IP → auto-fixes log formats → installs <code>codered-agent</code> CLI → downloads Linux-specific templates and discovery engine → clears old agent keys → starts service.</p>
+
+      <p style="font-size:12.5px;color:var(--text-dim)">The installer: detects distro → installs agent package → sets manager IP → auto-fixes log formats → ensures valid XML → installs <code>codered-agent</code> CLI → downloads Linux-specific templates and discovery engine → clears old agent keys → starts service.</p>
 
       <!-- Windows -->
       <h3>Windows (Server 2016+ / Windows 10+)</h3>
@@ -1409,6 +1409,23 @@ sudo codered-agent restart</pre>
         <h2>Troubleshooting</h2>
       </div>
 
+      <h3>Linux — Wrong manager IP / ossec.conf corrupted after install</h3>
+      <p>If you ran <code>curl ... | bash</code> instead of <code>bash &lt;(curl ...)</code>, the manager IP gets set incorrectly and breaks <code>ossec.conf</code>. Fix it:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Fix manager IP and XML in one command</span>
+python3 -c "
+import re, shutil
+conf = '/var/ossec/etc/ossec.conf'
+with open(conf) as f: content = f.read()
+shutil.copy2(conf, conf + '.bak')
+content = re.sub(r'&lt;address&gt;.*?&lt;/address&gt;', '&lt;address&gt;103.13.123.89&lt;/address&gt;', content)
+content = content.replace('&lt;/ossec_config&gt;', '').rstrip() + '\n&lt;/ossec_config&gt;\n'
+with open(conf, 'w') as f: f.write(content)
+print('Fixed')
+" &amp;&amp; systemctl start wazuh-agent</pre>
+      </div>
+
       <h3>Agent not connecting to manager</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
@@ -1416,18 +1433,18 @@ sudo codered-agent restart</pre>
 grep "&lt;address&gt;" /var/ossec/etc/ossec.conf
 
 <span class="t-dim"># Test connectivity</span>
-nc -zv &lt;manager-ip&gt; 1514
-nc -zv &lt;manager-ip&gt; 1515
+nc -zv 103.13.123.89 1514
+nc -zv 103.13.123.89 1515
 
 <span class="t-dim"># Check agent log</span>
-tail -f /var/ossec/logs/ossec.log</pre>
+tail -30 /var/ossec/logs/ossec.log</pre>
       </div>
 
       <h3>Agent service not starting</h3>
       <div class="code-block">
         <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>systemctl status wazuh-agent
-journalctl -u wazuh-agent -n 50
+        <pre>systemctl status wazuh-agent --no-pager
+journalctl -xeu wazuh-agent --no-pager | tail -30
 sudo codered-agent restart</pre>
       </div>
 
