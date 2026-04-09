@@ -130,7 +130,12 @@ def heal_conf():
     # Do NOT normalize </ossec_config> count - Wazuh uses multiple blocks
     if fixed != content:
         shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-        with open(AGENT_CONF,"w") as f: f.write(fixed)
+        tmp = AGENT_CONF + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(fixed)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, AGENT_CONF)
         restore_perms()
         print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
 
@@ -159,7 +164,13 @@ def inject_into_conf(selected):
         conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
     shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
-    with open(AGENT_CONF,"w") as f: f.write(conf)
+    # Atomic write: write to temp file then rename to avoid truncation on error
+    tmp = AGENT_CONF + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(conf)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, AGENT_CONF)
     restore_perms()
     print(f"{GREEN}  ✔ Config updated.{RESET}")
 
