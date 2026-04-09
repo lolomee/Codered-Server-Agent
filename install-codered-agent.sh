@@ -2,12 +2,9 @@
 # CodeRed Server Agent - Linux Installer
 set -e
 
-MANAGER_IP="${CODERED_MANAGER_IP:-}"
 INSTALL_DIR="/etc/codered"
 CLI_BIN="/usr/local/bin/codered-agent"
 TEMPLATES_DST="/etc/codered/templates/linux"
-OSSEC_CONF="/var/ossec/etc/ossec.conf"
-OSSEC_DIR="/var/ossec"
 REPO_BASE="https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"; CYAN="\033[96m"; BOLD="\033[1m"; RESET="\033[0m"
@@ -43,37 +40,32 @@ for dep in curl gpg python3; do
 done
 ok "Dependencies OK."
 
-# Manager IP
-if [[ -z "$MANAGER_IP" ]]; then
-  printf "%b" "${BOLD}  Enter your CodeRed Manager IP or hostname: ${RESET}"
-  read -rp "" MANAGER_IP < /dev/tty
-  [[ -z "$MANAGER_IP" ]] && die "Manager IP is required."
-fi
-if [[ "$MANAGER_IP" =~ [[:space:]] ]] || [[ ${#MANAGER_IP} -gt 253 ]]; then
-  die "Invalid Manager IP: ${MANAGER_IP}"
-fi
-log "Manager IP: ${MANAGER_IP}"
-
 # Detect OS
 [[ -f /etc/os-release ]] && . /etc/os-release || die "Cannot detect OS."
 log "OS: ${ID} ${VERSION_ID}"
 
-# Stop and purge old agent
+# Stop and purge old agent cleanly
 systemctl stop wazuh-agent 2>/dev/null || true
 if dpkg -l wazuh-agent &>/dev/null 2>&1; then
   log "Removing existing wazuh-agent..."
+  # Remove immutable flag if previously set
+  chattr -i /var/ossec/etc/client.keys 2>/dev/null || true
   apt-get remove --purge -y wazuh-agent -qq 2>/dev/null || true
   rm -rf /var/ossec /etc/ossec-init.conf
   ok "Old agent removed."
+elif [[ -d /var/ossec ]]; then
+  chattr -i /var/ossec/etc/client.keys 2>/dev/null || true
+  rm -rf /var/ossec
 fi
 
-# Install Wazuh agent
+# Install Wazuh agent WITHOUT manager IP
+# Registration will be done after install via the CLI (avoids duplicate name issues)
 install_deb() {
   log "Adding Wazuh repository (apt)..."
   curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
   echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
   apt-get update -qq
-  WAZUH_MANAGER="${MANAGER_IP}" apt-get install -y wazuh-agent
+  apt-get install -y wazuh-agent
 }
 
 install_rpm() {
@@ -89,9 +81,9 @@ baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 REPOEOF
   if command -v dnf &>/dev/null; then
-    WAZUH_MANAGER="${MANAGER_IP}" dnf install -y wazuh-agent
+    dnf install -y wazuh-agent
   else
-    WAZUH_MANAGER="${MANAGER_IP}" yum install -y wazuh-agent
+    yum install -y wazuh-agent
   fi
 }
 
@@ -102,58 +94,14 @@ case "$ID" in
 esac
 ok "Wazuh agent installed."
 
-# Verify ossec.conf
-[[ ! -f "$OSSEC_CONF" ]] && die "ossec.conf not found - Wazuh install failed."
-CONF_SIZE=$(wc -c < "$OSSEC_CONF")
-[[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf too small (${CONF_SIZE} bytes)."
-ok "ossec.conf: ${CONF_SIZE} bytes."
-
-# Ensure manager IP is present
-if grep -q "${MANAGER_IP}" "$OSSEC_CONF"; then
-  ok "Manager IP ${MANAGER_IP} confirmed in ossec.conf."
-else
-  warn "Manager IP missing - injecting..."
-  python3 -c "
-import re
-with open('$OSSEC_CONF', 'r') as f: c = f.read()
-c = re.sub(r'<address>[^<]*</address>', '<address>$MANAGER_IP</address>', c)
-with open('$OSSEC_CONF', 'w') as f: f.write(c)
-"
-  grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || die "Could not set manager IP."
-fi
-
-# ── Fix 1: Patch systemd unit to set WorkingDirectory ────────────────────────
-# wazuh-execd reads ossec.conf as a relative path 'etc/ossec.conf'.
-# Without WorkingDirectory=/var/ossec it fails with "line 0" error after
-# the manager pushes a shared config and execd reloads.
-log "Patching wazuh-agent systemd unit (WorkingDirectory fix)..."
-UNIT_FILE=""
-for f in /usr/lib/systemd/system/wazuh-agent.service \
-          /lib/systemd/system/wazuh-agent.service \
-          /etc/systemd/system/wazuh-agent.service; do
-  [[ -f "$f" ]] && UNIT_FILE="$f" && break
-done
-
-if [[ -n "$UNIT_FILE" ]]; then
-  # Only patch if WorkingDirectory not already set
-  if ! grep -q "WorkingDirectory" "$UNIT_FILE"; then
-    # Add WorkingDirectory after the [Service] section header
-    sed -i '/^\[Service\]/a WorkingDirectory=\/var\/ossec' "$UNIT_FILE"
-    ok "Patched $UNIT_FILE with WorkingDirectory=/var/ossec"
-  else
-    ok "WorkingDirectory already set in unit file."
-  fi
-else
-  warn "Could not find wazuh-agent.service unit file - skipping patch."
-fi
-
-# ── Fix 2: Use systemd override to ensure WorkingDirectory survives upgrades ──
+# Fix systemd WorkingDirectory so wazuh-execd can read ossec.conf via relative path
+log "Applying systemd WorkingDirectory fix..."
 mkdir -p /etc/systemd/system/wazuh-agent.service.d
 cat > /etc/systemd/system/wazuh-agent.service.d/workdir.conf << 'UNITEOF'
 [Service]
 WorkingDirectory=/var/ossec
 UNITEOF
-ok "Systemd override written to /etc/systemd/system/wazuh-agent.service.d/workdir.conf"
+ok "Systemd override written."
 
 # Install CodeRed CLI
 log "Installing CodeRed CLI..."
@@ -177,38 +125,11 @@ for tmpl in log-collection fim inventory threat vuln compliance active-response;
 done
 ok "Templates installed."
 
-# Force agent registration before starting
-# -F flag = force re-registration, overwriting duplicate on manager
-# This mirrors WAZUH_REGISTRATION_SERVER behaviour in the Windows MSI installer
-log "Registering agent with manager (force re-registration)..."
-if [[ -f "/var/ossec/bin/agent-auth" ]]; then
-  /var/ossec/bin/agent-auth -m "${MANAGER_IP}" -F 0 2>&1 | tail -3 || true
-  if [[ -s "/var/ossec/etc/client.keys" ]]; then
-    ok "Agent registered successfully."
-  else
-    warn "Registration pending - agent will retry on start."
-  fi
-else
-  warn "agent-auth not found - skipping pre-registration."
-fi
-
-# Start agent
-log "Starting agent service..."
 systemctl daemon-reload
 systemctl enable wazuh-agent
-if systemctl start wazuh-agent; then
-  ok "Agent service started successfully."
-else
-  warn "Agent failed to start. Last errors:"
-  grep -i "error" /var/ossec/logs/ossec.log 2>/dev/null | tail -5 || true
-  warn "Run: tail -50 /var/ossec/logs/ossec.log"
-fi
 
 printf "\n%b\n" "${GREEN}${BOLD}Installation complete!${RESET}"
-printf "  Run: %b\n\n" "${CYAN}${BOLD}sudo codered-agent${RESET}"
-
-read -rp "  Run log discovery scan now? [Y/n]: " RUN_SCAN < /dev/tty
-if [[ "${RUN_SCAN,,}" != "n" ]]; then
-  echo ""
-  "${CLI_BIN}" scan
-fi
+printf "\n  ${YELLOW}Next step: configure your Manager IP and register the agent:${RESET}\n"
+printf "    %b\n\n" "${CYAN}${BOLD}sudo codered-agent${RESET}"
+printf "  Then go to: ${BOLD}Settings → Set Manager IP${RESET}\n"
+printf "  The agent will register and start automatically.\n\n"
