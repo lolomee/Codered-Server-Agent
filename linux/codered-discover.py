@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 CodeRed Server Agent — Log Discovery Engine (Linux)
-Writes discovered logs to /var/ossec/etc/codered.conf (include file).
-Never modifies /var/ossec/etc/ossec.conf.
-"""
-import os, sys, re, glob, shutil, subprocess
 
-AGENT_CONF   = "/var/ossec/etc/ossec.conf"     # never modified
-CODERED_CONF = "/var/ossec/etc/codered.conf"   # our safe include file
+KEY DESIGN: Uses sed for ALL ossec.conf modifications.
+- sed -i does targeted in-place changes without full file rewrite
+- Avoids cat/Python open() which break wazuh-execd file attributes
+- Does NOT auto-restart agent (user restarts manually)
+"""
+import os, sys, re, glob, shutil, subprocess, tempfile
+
+AGENT_CONF = "/var/ossec/etc/ossec.conf"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"
 CYAN="\033[96m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
@@ -114,36 +116,17 @@ def getch():
 
 def clear(): sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 
-def write_conf_bash(content: str) -> bool:
-    """Write to ossec.conf via bash cat redirect — preserves Wazuh file attributes."""
-    result = subprocess.run(
-        ["bash", "-c", f"cat > {AGENT_CONF}"],
-        input=content.encode("utf-8"),
-        capture_output=True
-    )
-    if result.returncode != 0:
-        print(f"{RED}  ✖ Write failed: {result.stderr.decode()}{RESET}")
-        return False
-    subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
-    os.chmod(AGENT_CONF, 0o660)
-    return True
-
 def inject_into_conf(selected):
-    """Inject discovered logs into ossec.conf using bash write."""
+    """
+    Inject discovered log sources into ossec.conf using sed only.
+    sed does targeted in-place edits that preserve file attributes.
+    Never does a full file rewrite.
+    """
     if not os.path.exists(AGENT_CONF):
-        print(f"{YELLOW}  Agent config not found. Skipping.{RESET}"); return
+        print(f"{YELLOW}  Agent config not found. Skipping.{RESET}"); return False
 
-    with open(AGENT_CONF) as f: conf = f.read()
-
-    # Remove previous discovery block
-    start_tag = "<!-- CodeRed Discovered Logs -->"
-    end_tag   = "<!-- END:discovered-logs -->"
-    s, e = conf.find(start_tag), conf.find(end_tag)
-    if s != -1 and e != -1:
-        conf = conf[:s] + conf[e + len(end_tag):]
-
-    # Build new block
-    lines = [f"  {start_tag}"]
+    # Build the XML block to insert
+    lines = ["  <!-- CodeRed Discovered Logs -->"]
     fixed = 0
     for item in selected:
         fmt = item["format"] if item["format"] in VALID_FORMATS else "syslog"
@@ -154,24 +137,55 @@ def inject_into_conf(selected):
             f"    <location>{item['path']}</location>\n"
             f"  </localfile>"
         )
-    lines.append(f"  {end_tag}")
+    lines.append("  <!-- END:discovered-logs -->")
     block = "\n".join(lines)
-
-    # Insert before first closing tag
-    if "</ossec_config>" in conf:
-        new_conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
-    else:
-        new_conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
 
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
 
-    # Sanity check
-    if new_conf.count("</ossec_config>") != 1:
-        print(f"{RED}  ✖ Config structure error — aborting.{RESET}"); return
-
+    # Step 1: backup
     subprocess.run(["cp", AGENT_CONF, AGENT_CONF + ".bak"], capture_output=True)
-    if write_conf_bash(new_conf):
-        print(f"{GREEN}  ✔ Config updated.{RESET}")
+
+    # Step 2: remove existing CodeRed discovered block using sed
+    subprocess.run([
+        "sed", "-i",
+        "/<!-- CodeRed Discovered Logs -->/,/<!-- END:discovered-logs -->/d",
+        AGENT_CONF
+    ], capture_output=True)
+
+    # Step 3: write block to a temp file
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False)
+    tmp.write(block + "\n")
+    tmp.close()
+
+    # Step 4: use sed to insert temp file content before </ossec_config>
+    # sed '/pattern/r file' inserts file AFTER the matching line
+    # We delete </ossec_config>, insert block, then re-add </ossec_config>
+    subprocess.run([
+        "sed", "-i", f"/<\\/ossec_config>/{{r {tmp.name}\n d}}", AGENT_CONF
+    ], capture_output=True)
+
+    # Step 5: append closing tag back (file now has no closing tag)
+    with open(AGENT_CONF, "a") as f:
+        f.write("\n</ossec_config>\n")
+
+    # Restore permissions
+    subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+    os.chmod(AGENT_CONF, 0o660)
+
+    os.unlink(tmp.name)
+
+    # Verify
+    with open(AGENT_CONF) as f: content = f.read()
+    tag_count = content.count("</ossec_config>")
+    if tag_count != 1:
+        print(f"{YELLOW}  ⚠ Closing tag count: {tag_count} — restoring backup.{RESET}")
+        subprocess.run(["cp", AGENT_CONF + ".bak", AGENT_CONF], capture_output=True)
+        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+        os.chmod(AGENT_CONF, 0o660)
+        return False
+
+    print(f"{GREEN}  ✔ Config updated ({len(selected)} log sources).{RESET}")
+    return True
 
 def present_ui(discovered, custom_logs):
     items = []
@@ -247,16 +261,11 @@ def run_discovery(auto_apply=False):
     if not selected:
         print(f"\n{YELLOW}  Nothing selected. No changes.{RESET}\n"); return
     print(f"\n{CYAN}  Applying {len(selected)} log source(s)...{RESET}")
-    inject_into_conf(selected)
-    if not auto_apply:
-        ans = input(f"\n  Restart agent now? (y/N): ").strip().lower()
-        auto_apply = ans == "y"
-    if auto_apply:
-        try:
-            subprocess.run(["systemctl","restart","wazuh-agent"], check=True)
-            print(f"{GREEN}  ✔ Agent restarted.{RESET}")
-        except Exception as e:
-            print(f"{YELLOW}  Could not restart: {e}{RESET}")
+    ok = inject_into_conf(selected)
+    if ok:
+        print(f"\n{YELLOW}  ℹ Restart agent to activate new log sources:{RESET}")
+        print(f"  {CYAN}sudo systemctl restart wazuh-agent{RESET}")
+        print(f"  {CYAN}sudo coredited-agent status{RESET}")
     print(f"\n{GREEN}{BOLD}  Log discovery complete!{RESET}\n")
 
 if __name__=="__main__":

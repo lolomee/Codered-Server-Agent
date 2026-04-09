@@ -1,35 +1,32 @@
 #!/usr/bin/env python3
 """
 CodeRed Server Agent — Linux CLI
-Writes to ossec.conf via bash cat redirect (not Python open) to preserve
-Wazuh file attributes that Python open() disrupts.
+
+KEY DESIGN:
+- Module templates are NOT injected into ossec.conf (Wazuh default config handles them)
+- Log-collection entries use sed for targeted injection (never full file rewrite)
+- Agent is NOT auto-restarted after config changes (user restarts manually)
+- Only state.json is managed for module enable/disable tracking
 """
-import os, sys, re, shutil, subprocess, argparse, json, importlib.util
+import os, sys, re, shutil, subprocess, argparse, json, importlib.util, tempfile
 
 AGENT_CONF    = "/var/ossec/etc/ossec.conf"
-STATE_FILE    = "/etc/codered/state.json"
-TEMPLATES_DIR = "/etc/codered/templates/linux"
-DISCOVER_PATH = "/etc/codered/codered-discover.py"
+STATE_FILE    = "/etc/coredited/state.json"
+TEMPLATES_DIR = "/etc/coredited/templates/linux"
+DISCOVER_PATH = "/etc/coredited/coredited-discover.py"
 SVC_NAME      = "wazuh-agent"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"
 CYAN="\033[96m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
 
-VALID_FORMATS = {
-    "syslog","auth","apache","nginx","mysql_log","postgresql_log",
-    "audit","json","iis","command","full_command","multi-line",
-    "snort-full","snort-fast","squid","ossec","djb-multilog",
-    "cisco-ios","cisco-asa",
-}
-
 MODULES = {
-    "log-collection": {"label":"Log Collection",          "desc":"Collect system & application logs",                       "template":"log-collection.xml","tag":"<!-- MODULE:log-collection -->"},
-    "fim":            {"label":"File Integrity Monitoring","desc":"Detect file changes with SHA-256 checksums",              "template":"fim.xml",           "tag":"<!-- MODULE:fim -->"},
-    "inventory":      {"label":"System Inventory",         "desc":"Collect hardware, OS, packages, processes, open ports",   "template":"inventory.xml",     "tag":"<!-- MODULE:inventory -->"},
-    "threat":         {"label":"Threat Detection",         "desc":"Rootkit scanning, brute-force, MITRE ATT&CK detections",  "template":"threat.xml",        "tag":"<!-- MODULE:threat -->"},
-    "vuln":           {"label":"Vulnerability Detection",  "desc":"Map installed packages to known CVEs (NVD feed)",         "template":"vuln.xml",          "tag":"<!-- MODULE:vuln -->"},
-    "compliance":     {"label":"Compliance & Auditing",    "desc":"CIS Benchmark, PCI-DSS and custom SCA policy checks",     "template":"compliance.xml",    "tag":"<!-- MODULE:compliance -->"},
-    "active-response":{"label":"Active Response",          "desc":"Auto-block IPs, kill processes, quarantine files on alert","template":"active-response.xml","tag":"<!-- MODULE:active-response -->"},
+    "log-collection": {"label":"Log Collection",          "desc":"Collect system & application logs"},
+    "fim":            {"label":"File Integrity Monitoring","desc":"Detect file changes (active by default in Wazuh)"},
+    "inventory":      {"label":"System Inventory",         "desc":"Collect hardware, OS, packages (active by default)"},
+    "threat":         {"label":"Threat Detection",         "desc":"Rootkit scanning, brute-force (active by default)"},
+    "vuln":           {"label":"Vulnerability Detection",  "desc":"Map packages to CVEs via syscollector (active by default)"},
+    "compliance":     {"label":"Compliance & Auditing",    "desc":"CIS Benchmark SCA checks (active by default)"},
+    "active-response":{"label":"Active Response",          "desc":"Auto-block IPs on alert (active by default)"},
 }
 DEFAULT_ENABLED = ["log-collection","fim","inventory","threat"]
 
@@ -75,84 +72,6 @@ def load_state():
 def save_state(state):
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
-
-def read_conf():
-    if not os.path.exists(AGENT_CONF): return ""
-    with open(AGENT_CONF) as f: return f.read()
-
-def write_conf_bash(content: str) -> bool:
-    """Write to ossec.conf via bash cat redirect."""
-    if not content.strip():
-        print(f"{RED}  ✖ Content is empty — aborting.{RESET}"); return False
-    if "</ossec_config>" not in content:
-        print(f"{RED}  ✖ Missing closing tag — aborting.{RESET}"); return False
-    # Fix duplicates automatically instead of aborting
-    content = normalise_conf(content)
-    subprocess.run(["cp", AGENT_CONF, AGENT_CONF + ".bak"], capture_output=True)
-    result = subprocess.run(
-        ["bash", "-c", f"cat > {AGENT_CONF}"],
-        input=content.encode("utf-8"),
-        capture_output=True
-    )
-    if result.returncode != 0:
-        print(f"{RED}  ✖ Write failed: {result.stderr.decode()}{RESET}"); return False
-    subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
-    os.chmod(AGENT_CONF, 0o660)
-    return True
-
-def heal_formats(content):
-    def fix(m):
-        fmt = m.group(1).strip()
-        return f"<log_format>{fmt if fmt in VALID_FORMATS else 'syslog'}</log_format>"
-    return re.sub(r"<log_format>(.*?)</log_format>", fix, content)
-
-def normalise_conf(content):
-    count = content.count("</ossec_config>")
-    if count == 1: return content
-    content = content.replace("</ossec_config>", "").rstrip()
-    return content + "\n</ossec_config>\n"
-
-def remove_module(mid, conf):
-    tag=MODULES[mid]["tag"]; end_tag=f"<!-- END:{mid} -->"
-    s,e = conf.find(tag), conf.find(end_tag)
-    if s==-1 or e==-1: return conf
-    return conf[:s] + conf[e+len(end_tag):]
-
-def inject_module(mid, conf):
-    mod=MODULES[mid]; tag=mod["tag"]
-    tmpl=os.path.join(TEMPLATES_DIR,mod["template"])
-    if tag in conf: return conf
-    if not os.path.exists(tmpl):
-        print(f"{YELLOW}  [warn] Template not found: {tmpl}{RESET}"); return conf
-    with open(tmpl) as f:
-        block = f"\n  {tag}\n{f.read()}\n  <!-- END:{mid} -->\n"
-    return conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
-
-def apply_state(state: dict) -> bool:
-    conf = read_conf()
-    if not conf:
-        print(f"{YELLOW}  Config not found at {AGENT_CONF}{RESET}"); return False
-
-    # Fix any duplicate closing tags first
-    conf = heal_formats(conf)
-    conf = normalise_conf(conf)
-
-    # Remove previous log-collection block only
-    start_tag = "<!-- MODULE:log-collection -->"
-    end_tag   = "<!-- END:log-collection -->"
-    s, e = conf.find(start_tag), conf.find(end_tag)
-    if s != -1 and e != -1:
-        conf = conf[:s] + conf[e + len(end_tag):]
-
-    # Only inject log-collection template if enabled
-    if "log-collection" in state["enabled"]:
-        tmpl = os.path.join(TEMPLATES_DIR, "log-collection.xml")
-        if os.path.exists(tmpl):
-            with open(tmpl) as f:
-                block = f"\n  {start_tag}\n{f.read()}\n  {end_tag}\n"
-            conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
-
-    return write_conf_bash(conf)
 
 def svc_status():
     r = subprocess.run(["systemctl","is-active",SVC_NAME], capture_output=True, text=True)
@@ -219,7 +138,7 @@ def menu_scan():
     try:
         if not os.path.exists(DISCOVER_PATH):
             banner("Scan Log Directories")
-            sys.stdout.write(f"{RED}  codered-discover.py not found:\n  {DISCOVER_PATH}{RESET}\n\n")
+            sys.stdout.write(f"{RED}  coredited-discover.py not found:\n  {DISCOVER_PATH}{RESET}\n\n")
             input("  Press Enter to return..."); return
         spec=importlib.util.spec_from_file_location("discover",DISCOVER_PATH)
         mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
@@ -229,6 +148,11 @@ def menu_scan():
         sys.stdout.write(f"\n{YELLOW}  Cancelled.{RESET}\n")
 
 def menu_setup():
+    """
+    Module setup only updates state.json.
+    Modules other than log-collection are already active in Wazuh defaults.
+    Enabling log-collection here schedules it — run scan to add log sources.
+    """
     state=load_state(); enabled=set(state["enabled"]); keys=list(MODULES.keys())
     cursor=0; vs=0
     def render():
@@ -238,7 +162,9 @@ def menu_setup():
         elif cursor>=vs+vp: vs=cursor-vp+1
         ve=min(vs+vp,len(keys))
         banner("Module Setup")
-        sys.stdout.write(f"  {DIM}↑↓ · Space toggle · A all · N none · Enter save · Q back{RESET}\n\n")
+        sys.stdout.write(f"  {DIM}↑↓ · Space toggle · A all · N none · Enter save · Q back{RESET}\n")
+        sys.stdout.write(f"  {DIM}Note: fim/inventory/threat/vuln/compliance/active-response{RESET}\n")
+        sys.stdout.write(f"  {DIM}are always active via Wazuh defaults.{RESET}\n\n")
         for i in range(vs,ve):
             mid=keys[i]; mod=MODULES[mid]
             tick=f"{GREEN}✔{RESET}" if mid in enabled else f"{RED}✖{RESET}"
@@ -262,8 +188,8 @@ def menu_setup():
         elif ch.lower()=="n": enabled=set()
         elif ch in("\r","\n"):
             state["enabled"]=list(enabled); save_state(state)
-            sys.stdout.write(f"\n{CYAN}  Applying...{RESET}\n")
-            if apply_state(state): restart_agent()
+            sys.stdout.write(f"\n{GREEN}  ✔ Module preferences saved.{RESET}\n")
+            sys.stdout.write(f"  {DIM}Note: Only log-collection affects ossec.conf. Run scan to add log sources.{RESET}\n")
             input(f"\n  Press {BOLD}Enter{RESET} to return..."); return
         elif ch.lower()=="q": return
         render()
@@ -297,11 +223,12 @@ def menu_settings():
             ip=input("\n  Enter Manager IP or hostname: ").strip()
             if ip:
                 state["manager_ip"]=ip; save_state(state)
+                # Use sed — never rewrites whole file
                 subprocess.run(["sed","-i",
                     f"s|<address>.*</address>|<address>{ip}</address>|g",
                     AGENT_CONF])
                 print(f"\n{GREEN}  ✔ Manager IP updated to: {ip}{RESET}")
-                restart_agent()
+                print(f"  {YELLOW}Restart agent for changes to take effect: sudo systemctl restart wazuh-agent{RESET}")
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
         elif ch=="2":
             ip=state.get("manager_ip","")
@@ -314,7 +241,7 @@ def menu_settings():
                 except Exception as e: print(f"{RED}  ✖ {e}{RESET}")
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
         elif ch=="3":
-            if apply_state(load_state()): restart_agent()
+            restart_agent()
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
         elif ch=="0": return
 
@@ -330,8 +257,8 @@ def menu_uninstall():
         try:
             if subprocess.run(cmd,capture_output=True).returncode==0: break
         except FileNotFoundError: continue
-    shutil.rmtree("/etc/codered",ignore_errors=True)
-    for f in ["/usr/local/bin/codered-agent",
+    shutil.rmtree("/etc/coredited",ignore_errors=True)
+    for f in ["/usr/local/bin/coredited-agent",
               "/etc/apt/sources.list.d/wazuh.list",
               "/usr/share/keyrings/wazuh.gpg",
               "/etc/yum.repos.d/wazuh.repo"]:
@@ -343,18 +270,20 @@ def cmd_enable(mod):
     state=load_state()
     if mod in state["enabled"]: print(f"{YELLOW}{MODULES[mod]['label']} already enabled.{RESET}"); return
     state["enabled"].append(mod); save_state(state)
-    if apply_state(state): restart_agent(); print(f"{GREEN}✔ Enabled: {MODULES[mod]['label']}{RESET}")
+    print(f"{GREEN}✔ Enabled: {MODULES[mod]['label']}{RESET}")
+    if mod == "log-collection":
+        print(f"{DIM}Run 'sudo coredited-agent scan' to add log sources to monitoring.{RESET}")
 
 def cmd_disable(mod):
     state=load_state()
     if mod not in state["enabled"]: print(f"{YELLOW}{MODULES[mod]['label']} already disabled.{RESET}"); return
     state["enabled"].remove(mod); save_state(state)
-    if apply_state(state): restart_agent(); print(f"{GREEN}✔ Disabled: {MODULES[mod]['label']}{RESET}")
+    print(f"{GREEN}✔ Disabled: {MODULES[mod]['label']}{RESET}")
 
 def main():
     if not is_root():
-        print(f"{RED}Please run as root (sudo codered-agent){RESET}"); sys.exit(1)
-    p=argparse.ArgumentParser(prog="codered-agent")
+        print(f"{RED}Please run as root (sudo coredited-agent){RESET}"); sys.exit(1)
+    p=argparse.ArgumentParser(prog="coredited-agent")
     s=p.add_subparsers(dest="cmd")
     s.add_parser("scan"); s.add_parser("setup"); s.add_parser("status")
     s.add_parser("settings"); s.add_parser("uninstall"); s.add_parser("restart")
@@ -363,7 +292,7 @@ def main():
     args=p.parse_args()
     dispatch={"scan":menu_scan,"setup":menu_setup,"status":menu_status,
               "settings":menu_settings,"uninstall":menu_uninstall,
-              "restart":lambda:(apply_state(load_state()) and restart_agent())}
+              "restart":restart_agent}
     if args.cmd in dispatch: dispatch[args.cmd](); return
     if args.cmd=="enable":  cmd_enable(args.module); return
     if args.cmd=="disable": cmd_disable(args.module); return
