@@ -138,10 +138,17 @@ def heal_conf():
                 f.write(fixed)
                 f.flush()
                 os.fsync(f.fileno())
-            subprocess.run(["chown","root:wazuh",tmp], capture_output=True)
-            os.chmod(tmp, 0o660)
-            shutil.move(tmp, AGENT_CONF)
-            print(f"{GREEN}  ✔ Auto-fixed invalid log formats in ossec.conf.{RESET}")
+            with open(tmp) as f: verify = f.read()
+            if "</ossec_config>" not in verify:
+                raise ValueError("Temp missing closing tag")
+            with open(AGENT_CONF,"w") as f:
+                f.write(verify)
+                f.flush()
+                os.fsync(f.fileno())
+            os.remove(tmp)
+            subprocess.run(["chown","root:wazuh",AGENT_CONF], capture_output=True)
+            os.chmod(AGENT_CONF, 0o660)
+            print(f"{GREEN}  ✔ Auto-fixed invalid log formats.{RESET}")
         except Exception as ex:
             print(f"{YELLOW}  Could not fix conf: {ex}{RESET}")
             try: os.remove(tmp)
@@ -177,17 +184,28 @@ def inject_into_conf(selected):
     if conf.count("</ossec_config>") > 1:
         print(f"{RED}  ✖ Duplicate closing tag — aborting.{RESET}"); return
 
-    # Write to temp file first, then atomically move (prevents truncation)
+    # Write in-place (preserves inode, AppArmor label, and security context)
     tmp = AGENT_CONF + ".discover_tmp"
     try:
         shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+        # Write full content to tmp first to verify no truncation
         with open(tmp, "w") as f:
             f.write(conf)
             f.flush()
-            os.fsync(f.fileno())  # ensure data hits disk before move
-        subprocess.run(["chown", "root:wazuh", tmp], capture_output=True)
-        os.chmod(tmp, 0o660)
-        shutil.move(tmp, AGENT_CONF)
+            os.fsync(f.fileno())
+        # Verify tmp is complete before replacing live file
+        with open(tmp) as f:
+            verify = f.read()
+        if "</ossec_config>" not in verify:
+            raise ValueError("Temp file missing closing tag — aborting")
+        # Write in-place to preserve inode/security context
+        with open(AGENT_CONF, "w") as f:
+            f.write(verify)
+            f.flush()
+            os.fsync(f.fileno())
+        os.remove(tmp)
+        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+        os.chmod(AGENT_CONF, 0o660)
         print(f"{GREEN}  ✔ Config updated.{RESET}")
     except Exception as ex:
         print(f"{RED}  ✖ Write failed: {ex}{RESET}")

@@ -129,18 +129,30 @@ def write_conf(content):
         print(f"\n{RED}  ✖ Config validation failed: {err}{RESET}")
         return False
     tmp = AGENT_CONF + ".tmp"
-    shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(content)
-    shutil.move(tmp, AGENT_CONF)
-    # Restore Wazuh ownership and permissions
     try:
-        import subprocess
+        shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+        # Write to tmp first to verify no truncation
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        with open(tmp) as f: verify = f.read()
+        if "</ossec_config>" not in verify:
+            raise ValueError("Temp file missing closing tag")
+        # Write in-place to preserve inode and security context
+        with open(AGENT_CONF, "w", encoding="utf-8") as f:
+            f.write(verify)
+            f.flush()
+            os.fsync(f.fileno())
+        os.remove(tmp)
         subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
         os.chmod(AGENT_CONF, 0o660)
-    except Exception:
-        pass
-    return True
+        return True
+    except Exception as e:
+        print(f"{RED}  ✖ Failed to write config: {e}{RESET}")
+        try: os.remove(tmp)
+        except: pass
+        return False
 
 def remove_module(mid, conf):
     tag     = MODULES[mid]["tag"]
