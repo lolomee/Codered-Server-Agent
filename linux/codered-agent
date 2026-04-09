@@ -77,11 +77,34 @@ def svc_status():
     r = subprocess.run(["systemctl","is-active",SVC_NAME], capture_output=True, text=True)
     return r.stdout.strip()
 
-def restart_agent():
+def clear_agent_keys():
+    """Remove client.keys so agent re-registers fresh with manager."""
+    keys_path = "/var/ossec/etc/client.keys"
+    try:
+        if os.path.exists(keys_path):
+            os.remove(keys_path)
+            print(f"  {DIM}Agent keys cleared (will re-register with manager).{RESET}")
+    except Exception as e:
+        print(f"{YELLOW}  Warning: Could not clear keys: {e}{RESET}")
+
+def restart_agent(clear_keys=True):
     print(f"\n{CYAN}  Restarting CodeRed Agent...{RESET}")
     try:
-        subprocess.run(["systemctl","restart",SVC_NAME], check=True)
-        print(f"{GREEN}  ✔ Agent restarted.{RESET}")
+        subprocess.run(["systemctl","stop",SVC_NAME], capture_output=True)
+        if clear_keys:
+            clear_agent_keys()
+        subprocess.run(["systemctl","start",SVC_NAME], check=True)
+        import time; time.sleep(2)
+        # Check for duplicate name error in logs
+        log_check = subprocess.run(
+            ["grep", "-i", "duplicate agent", "/var/ossec/logs/ossec.log"],
+            capture_output=True, text=True
+        )
+        if log_check.stdout:
+            print(f"{YELLOW}  ⚠ Duplicate agent name detected on manager.{RESET}")
+            print(f"  {DIM}Fix: Go to Wazuh Manager dashboard → Agents → Delete '{os.uname().nodename}' → Restart agent here.{RESET}")
+        else:
+            print(f"{GREEN}  ✔ Agent restarted.{RESET}")
     except subprocess.CalledProcessError:
         print(f"{RED}  ✖ Failed. Check: journalctl -xeu {SVC_NAME}{RESET}")
 
@@ -223,12 +246,19 @@ def menu_settings():
             ip=input("\n  Enter Manager IP or hostname: ").strip()
             if ip:
                 state["manager_ip"]=ip; save_state(state)
-                # Use sed — never rewrites whole file
-                subprocess.run(["sed","-i",
-                    f"s|<address>.*</address>|<address>{ip}</address>|g",
-                    AGENT_CONF])
-                print(f"\n{GREEN}  ✔ Manager IP updated to: {ip}{RESET}")
-                print(f"  {YELLOW}Restart agent for changes to take effect: sudo systemctl restart wazuh-agent{RESET}")
+                # Update ossec.conf safely using Python regex (sed can corrupt XML)
+                try:
+                    with open(AGENT_CONF, "r") as f: conf = f.read()
+                    import re as _re
+                    new_conf = _re.sub(r"<address>[^<]*</address>", f"<address>{ip}</address>", conf)
+                    with open(AGENT_CONF, "w") as f: f.write(new_conf)
+                    print(f"\n{GREEN}  ✔ Manager IP updated to: {ip}{RESET}")
+                except Exception as e:
+                    print(f"\n{RED}  ✖ Could not update ossec.conf: {e}{RESET}")
+                    print(f"  {YELLOW}Set manually: sudo sed -i 's|<address>.*</address>|<address>{ip}</address>|g' {AGENT_CONF}{RESET}")
+                # Clear keys and restart so agent re-registers with new manager
+                clear_agent_keys()
+                restart_agent(clear_keys=False)
             input(f"\n  Press {BOLD}Enter{RESET} to continue...")
         elif ch=="2":
             ip=state.get("manager_ip","")
