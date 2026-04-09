@@ -55,10 +55,16 @@ done
 ok "All dependencies satisfied."
 
 # ── Prompt for Manager IP ─────────────────────────────────────────────────────
+# ── Prompt for Manager IP ─────────────────────────────────────────────────────
 if [[ -z "$MANAGER_IP" ]]; then
   echo -e "${BOLD}  Enter your CodeRed Manager IP or hostname:${RESET}"
-  read -rp "  > " MANAGER_IP
+  read -rp "  > " MANAGER_IP < /dev/tty
   [[ -z "$MANAGER_IP" ]] && die "Manager IP is required."
+fi
+
+# Validate it looks like an IP or hostname (not a script line)
+if [[ "$MANAGER_IP" =~ [^a-zA-Z0-9._-] ]]; then
+  die "Invalid Manager IP: '${MANAGER_IP}'. Use CODERED_MANAGER_IP=x.x.x.x bash <(curl -s ...) to avoid stdin issues."
 fi
 log "Manager: ${BOLD}${MANAGER_IP}${RESET}"
 
