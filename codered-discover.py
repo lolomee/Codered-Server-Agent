@@ -542,11 +542,52 @@ def present_ui(discovered: list, custom_logs: list) -> list:
 
     return [it for it in items if it["selected"]]
 
+# ── Self-heal: fix invalid formats already in ossec.conf ─────────────────────
+def heal_ossec_conf() -> bool:
+    """
+    Scan existing ossec.conf for invalid log_format values and fix them.
+    Returns True if any fixes were made.
+    """
+    if not os.path.exists(AGENT_CONF):
+        return False
+
+    valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
+    fixed = 0
+
+    try:
+        with open(AGENT_CONF, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("<log_format>") and stripped.endswith("</log_format>"):
+                fmt = stripped[len("<log_format>"):-len("</log_format>")].strip()
+                if fmt not in valid:
+                    indent = line[: len(line) - len(line.lstrip())]
+                    line = f"{indent}<log_format>syslog</log_format>\n"
+                    fixed += 1
+            new_lines.append(line)
+
+        if fixed:
+            shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
+            with open(AGENT_CONF, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            print(f"{GREEN}  ✔ Auto-fixed {fixed} invalid log format(s) in ossec.conf.{RESET}")
+            return True
+    except Exception as e:
+        print(f"{YELLOW}  Could not auto-heal ossec.conf: {e}{RESET}")
+
+    return False
+
 # ── Main entrypoint ───────────────────────────────────────────────────────────
 def run_discovery(auto_apply=False):
     print(f"\n{CYAN}{BOLD}  CodeRed Log Discovery{RESET}")
     platform_label = "Windows" if IS_WIN else "Linux"
     print(f"  Scanning {platform_label} endpoint...\n")
+
+    # Auto-fix any invalid formats from previous scans before doing anything
+    heal_ossec_conf()
 
     active_svc = get_active_services()
     installed  = get_installed_packages()
