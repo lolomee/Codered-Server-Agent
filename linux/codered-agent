@@ -140,13 +140,31 @@ def inject_module(mid, conf):
     return conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
 
 def apply_state(state: dict) -> bool:
+    """
+    Only inject log-collection entries into ossec.conf.
+    Other modules (fim, inventory, threat, vuln, compliance, active-response)
+    are already configured in Wazuh's default ossec.conf — we just track
+    their state in state.json without touching ossec.conf.
+    """
     conf = read_conf()
     if not conf:
         print(f"{YELLOW}  Config not found at {AGENT_CONF}{RESET}"); return False
-    conf = heal_formats(conf)
-    conf = normalise_conf(conf)
-    for mid in MODULES: conf = remove_module(mid, conf)
-    for mid in state["enabled"]: conf = inject_module(mid, conf)
+
+    # Remove only previously injected log-collection block
+    start_tag = "<!-- MODULE:log-collection -->"
+    end_tag   = "<!-- END:log-collection -->"
+    s, e = conf.find(start_tag), conf.find(end_tag)
+    if s != -1 and e != -1:
+        conf = conf[:s] + conf[e + len(end_tag):]
+
+    # Only inject log-collection if enabled
+    if "log-collection" in state["enabled"]:
+        tmpl = os.path.join(TEMPLATES_DIR, "log-collection.xml")
+        if os.path.exists(tmpl):
+            with open(tmpl) as f:
+                block = f"\n  {start_tag}\n{f.read()}\n  {end_tag}\n"
+            conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
+
     return write_conf_bash(conf)
 
 def svc_status():
