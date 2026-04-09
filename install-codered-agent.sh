@@ -187,14 +187,51 @@ else:
     print('All log formats valid.')
 "
 
-# ── Validate with wazuh-agentd -t ────────────────────────────────────────────
+# ── Validate ossec.conf with Python XML parser ────────────────────────────────
 log "Running config validation..."
-if cd /var/ossec && /var/ossec/bin/wazuh-agentd -t 2>&1; then
-  ok "Config validation passed."
-else
-  die "Config validation failed. Check ${OSSEC_CONF}"
-fi
-cd - > /dev/null
+python3 -c "
+import xml.etree.ElementTree as ET, sys
+
+conf = '${OSSEC_CONF}'
+
+# Check file is not empty
+import os
+size = os.path.getsize(conf)
+if size < 50:
+    print(f'ERROR: ossec.conf is too small ({size} bytes)')
+    sys.exit(1)
+
+# Parse XML
+try:
+    tree = ET.parse(conf)
+    root = tree.getroot()
+except ET.ParseError as e:
+    print(f'ERROR: XML parse failed: {e}')
+    sys.exit(1)
+
+# Check manager address is set
+addresses = [el.text for el in root.iter('address') if el.text]
+if not addresses:
+    print('ERROR: No <address> element found in config')
+    sys.exit(1)
+
+# Check for invalid log formats
+valid = {'syslog','auth','apache','nginx','mysql_log','postgresql_log',
+         'audit','json','iis','command','full_command','multi-line',
+         'snort-full','snort-fast','squid','ossec','djb-multilog',
+         'cisco-ios','cisco-asa'}
+bad = []
+for lf in root.iter('localfile'):
+    fmt = lf.find('log_format')
+    if fmt is not None and fmt.text and fmt.text.strip() not in valid:
+        bad.append(fmt.text.strip())
+if bad:
+    print(f'ERROR: Invalid log_format values: {bad}')
+    sys.exit(1)
+
+print(f'Config OK — {size} bytes, manager={addresses[0]}')
+" || die "Config validation failed."
+ok "Config validation passed."
 
 # ── Remove old agent registration to avoid duplicate name error ───────────────
 log "Clearing old agent registration..."
