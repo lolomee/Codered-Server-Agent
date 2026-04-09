@@ -11,9 +11,9 @@ KEY DESIGN:
 import os, sys, re, shutil, subprocess, argparse, json, importlib.util, tempfile
 
 AGENT_CONF    = "/var/ossec/etc/ossec.conf"
-STATE_FILE    = "/etc/coredited/state.json"
-TEMPLATES_DIR = "/etc/coredited/templates/linux"
-DISCOVER_PATH = "/etc/coredited/coredited-discover.py"
+STATE_FILE    = "/etc/codered/state.json"
+TEMPLATES_DIR = "/etc/codered/templates/linux"
+DISCOVER_PATH = "/etc/codered/codered-discover.py"
 SVC_NAME      = "wazuh-agent"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"
@@ -138,7 +138,7 @@ def menu_scan():
     try:
         if not os.path.exists(DISCOVER_PATH):
             banner("Scan Log Directories")
-            sys.stdout.write(f"{RED}  coredited-discover.py not found:\n  {DISCOVER_PATH}{RESET}\n\n")
+            sys.stdout.write(f"{RED}  codered-discover.py not found:\n  {DISCOVER_PATH}{RESET}\n\n")
             input("  Press Enter to return..."); return
         spec=importlib.util.spec_from_file_location("discover",DISCOVER_PATH)
         mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
@@ -257,8 +257,8 @@ def menu_uninstall():
         try:
             if subprocess.run(cmd,capture_output=True).returncode==0: break
         except FileNotFoundError: continue
-    shutil.rmtree("/etc/coredited",ignore_errors=True)
-    for f in ["/usr/local/bin/coredited-agent",
+    shutil.rmtree("/etc/codered",ignore_errors=True)
+    for f in ["/usr/local/bin/codered-agent",
               "/etc/apt/sources.list.d/wazuh.list",
               "/usr/share/keyrings/wazuh.gpg",
               "/etc/yum.repos.d/wazuh.repo"]:
@@ -272,7 +272,7 @@ def cmd_enable(mod):
     state["enabled"].append(mod); save_state(state)
     print(f"{GREEN}✔ Enabled: {MODULES[mod]['label']}{RESET}")
     if mod == "log-collection":
-        print(f"{DIM}Run 'sudo coredited-agent scan' to add log sources to monitoring.{RESET}")
+        print(f"{DIM}Run 'sudo codered-agent scan' to add log sources to monitoring.{RESET}")
 
 def cmd_disable(mod):
     state=load_state()
@@ -282,8 +282,8 @@ def cmd_disable(mod):
 
 def main():
     if not is_root():
-        print(f"{RED}Please run as root (sudo coredited-agent){RESET}"); sys.exit(1)
-    p=argparse.ArgumentParser(prog="coredited-agent")
+        print(f"{RED}Please run as root (sudo codered-agent){RESET}"); sys.exit(1)
+    p=argparse.ArgumentParser(prog="codered-agent")
     s=p.add_subparsers(dest="cmd")
     s.add_parser("scan"); s.add_parser("setup"); s.add_parser("status")
     s.add_parser("settings"); s.add_parser("uninstall"); s.add_parser("restart")
