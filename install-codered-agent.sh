@@ -7,6 +7,7 @@ INSTALL_DIR="/etc/codered"
 CLI_BIN="/usr/local/bin/codered-agent"
 TEMPLATES_DST="/etc/codered/templates/linux"
 OSSEC_CONF="/var/ossec/etc/ossec.conf"
+OSSEC_DIR="/var/ossec"
 REPO_BASE="https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main"
 
 RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"; CYAN="\033[96m"; BOLD="\033[1m"; RESET="\033[0m"
@@ -57,7 +58,7 @@ log "Manager IP: ${MANAGER_IP}"
 [[ -f /etc/os-release ]] && . /etc/os-release || die "Cannot detect OS."
 log "OS: ${ID} ${VERSION_ID}"
 
-# Stop and purge old agent (avoids duplicate name on manager)
+# Stop and purge old agent
 systemctl stop wazuh-agent 2>/dev/null || true
 if dpkg -l wazuh-agent &>/dev/null 2>&1; then
   log "Removing existing wazuh-agent..."
@@ -72,7 +73,6 @@ install_deb() {
   curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
   echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
   apt-get update -qq
-  # WAZUH_MANAGER sets manager address in ossec.conf natively during install
   WAZUH_MANAGER="${MANAGER_IP}" apt-get install -y wazuh-agent
 }
 
@@ -102,31 +102,58 @@ case "$ID" in
 esac
 ok "Wazuh agent installed."
 
-# Verify ossec.conf exists and has content
-# NOTE: Wazuh uses a multi-root XML format (multiple <ossec_config> blocks)
-# which is intentional and handled by Wazuh's parser — do NOT validate with
-# Python's standard XML parser as it will incorrectly reject valid configs.
+# Verify ossec.conf
 [[ ! -f "$OSSEC_CONF" ]] && die "ossec.conf not found - Wazuh install failed."
 CONF_SIZE=$(wc -c < "$OSSEC_CONF")
-[[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf is too small (${CONF_SIZE} bytes) - install may have failed."
+[[ "$CONF_SIZE" -lt 100 ]] && die "ossec.conf too small (${CONF_SIZE} bytes)."
 ok "ossec.conf: ${CONF_SIZE} bytes."
 
 # Ensure manager IP is present
 if grep -q "${MANAGER_IP}" "$OSSEC_CONF"; then
   ok "Manager IP ${MANAGER_IP} confirmed in ossec.conf."
 else
-  warn "Manager IP missing - injecting via Python..."
+  warn "Manager IP missing - injecting..."
   python3 -c "
 import re
 with open('$OSSEC_CONF', 'r') as f: c = f.read()
 c = re.sub(r'<address>[^<]*</address>', '<address>$MANAGER_IP</address>', c)
-if '$MANAGER_IP' not in c:
-    c = c.rstrip() + '\n<ossec_config>\n  <client>\n    <server>\n      <address>$MANAGER_IP</address>\n      <port>1514</port>\n      <protocol>tcp</protocol>\n    </server>\n  </client>\n</ossec_config>\n'
 with open('$OSSEC_CONF', 'w') as f: f.write(c)
-print('Done.')
 "
-  grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || die "Could not set manager IP in ossec.conf."
+  grep -q "${MANAGER_IP}" "$OSSEC_CONF" && ok "Manager IP set." || die "Could not set manager IP."
 fi
+
+# ── Fix 1: Patch systemd unit to set WorkingDirectory ────────────────────────
+# wazuh-execd reads ossec.conf as a relative path 'etc/ossec.conf'.
+# Without WorkingDirectory=/var/ossec it fails with "line 0" error after
+# the manager pushes a shared config and execd reloads.
+log "Patching wazuh-agent systemd unit (WorkingDirectory fix)..."
+UNIT_FILE=""
+for f in /usr/lib/systemd/system/wazuh-agent.service \
+          /lib/systemd/system/wazuh-agent.service \
+          /etc/systemd/system/wazuh-agent.service; do
+  [[ -f "$f" ]] && UNIT_FILE="$f" && break
+done
+
+if [[ -n "$UNIT_FILE" ]]; then
+  # Only patch if WorkingDirectory not already set
+  if ! grep -q "WorkingDirectory" "$UNIT_FILE"; then
+    # Add WorkingDirectory after the [Service] section header
+    sed -i '/^\[Service\]/a WorkingDirectory=\/var\/ossec' "$UNIT_FILE"
+    ok "Patched $UNIT_FILE with WorkingDirectory=/var/ossec"
+  else
+    ok "WorkingDirectory already set in unit file."
+  fi
+else
+  warn "Could not find wazuh-agent.service unit file - skipping patch."
+fi
+
+# ── Fix 2: Use systemd override to ensure WorkingDirectory survives upgrades ──
+mkdir -p /etc/systemd/system/wazuh-agent.service.d
+cat > /etc/systemd/system/wazuh-agent.service.d/workdir.conf << 'UNITEOF'
+[Service]
+WorkingDirectory=/var/ossec
+UNITEOF
+ok "Systemd override written to /etc/systemd/system/wazuh-agent.service.d/workdir.conf"
 
 # Install CodeRed CLI
 log "Installing CodeRed CLI..."
@@ -156,6 +183,17 @@ systemctl daemon-reload
 systemctl enable wazuh-agent
 if systemctl start wazuh-agent; then
   ok "Agent service started successfully."
+  # Wait for registration then lock client.keys as read-only
+  # so it survives restarts without triggering duplicate name
+  log "Waiting for agent registration..."
+  for i in $(seq 1 15); do
+    if [[ -s "/var/ossec/etc/client.keys" ]]; then
+      chattr +i /var/ossec/etc/client.keys 2>/dev/null && ok "client.keys locked (immutable) - agent will reuse key on restart." || true
+      break
+    fi
+    sleep 1
+  done
+  [[ ! -s "/var/ossec/etc/client.keys" ]] && warn "Agent not yet registered - may need manager to accept it first."
 else
   warn "Agent failed to start. Last errors:"
   grep -i "error" /var/ossec/logs/ossec.log 2>/dev/null | tail -5 || true
