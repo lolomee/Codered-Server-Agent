@@ -89,7 +89,7 @@ def clear_agent_keys():
     except Exception as e:
         print(f"{YELLOW}  Warning: Could not clear keys: {e}{RESET}")
 
-def restart_agent(clear_keys=True):
+def restart_agent(clear_keys=False):
     print(f"\n{CYAN}  Restarting CodeRed Agent...{RESET}")
     try:
         subprocess.run(["systemctl","stop",SVC_NAME], capture_output=True)
