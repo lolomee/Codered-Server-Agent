@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""
+CodeRed Server Agent — Linux CLI
+
+KEY DESIGN:
+- Module templates are NOT injected into ossec.conf (Wazuh default config handles them)
+- Log-collection entries use sed for targeted injection (never full file rewrite)
+- Agent is NOT auto-restarted after config changes (user restarts manually)
+- Only state.json is managed for module enable/disable tracking
+"""
+import os, sys, re, shutil, subprocess, argparse, json, importlib.util, tempfile
+
+AGENT_CONF    = "/var/ossec/etc/ossec.conf"
+STATE_FILE    = "/etc/coredited/state.json"
+TEMPLATES_DIR = "/etc/coredited/templates/linux"
+DISCOVER_PATH = "/etc/coredited/coredited-discover.py"
+SVC_NAME      = "wazuh-agent"
+
+RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"
+CYAN="\033[96m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
+
+MODULES = {
+    "log-collection": {"label":"Log Collection",          "desc":"Collect system & application logs"},
+    "fim":            {"label":"File Integrity Monitoring","desc":"Detect file changes (active by default in Wazuh)"},
+    "inventory":      {"label":"System Inventory",         "desc":"Collect hardware, OS, packages (active by default)"},
+    "threat":         {"label":"Threat Detection",         "desc":"Rootkit scanning, brute-force (active by default)"},
+    "vuln":           {"label":"Vulnerability Detection",  "desc":"Map packages to CVEs via syscollector (active by default)"},
+    "compliance":     {"label":"Compliance & Auditing",    "desc":"CIS Benchmark SCA checks (active by default)"},
+    "active-response":{"label":"Active Response",          "desc":"Auto-block IPs on alert (active by default)"},
+}
+DEFAULT_ENABLED = ["log-collection","fim","inventory","threat"]
+
+def is_root(): return os.geteuid() == 0
+
+def getch():
+    import tty, termios
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        if ch == "\x1b":
+            sys.stdin.read(1)
+            a = sys.stdin.read(1)
+            if a == "A": return "UP"
+            if a == "B": return "DOWN"
+            return ""
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+def clear():
+    sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
+
+def banner(sub=""):
+    clear()
+    sys.stdout.write(f"{CYAN}{BOLD}\n")
+    sys.stdout.write("  ____          _      ____          _\n")
+    sys.stdout.write(" / ___|___   __| | ___|  _ \\ ___  __| |\n")
+    sys.stdout.write("| |   / _ \\ / _` |/ _ \\ |_) / _ \\/ _` |\n")
+    sys.stdout.write("| |__| (_) | (_| |  __/  _ <  __/ (_| |\n")
+    sys.stdout.write(" \\____\\___/ \\__,_|\\___|_| \\_\\___|\\__,_|\n")
+    sys.stdout.write(f"{RESET}\n")
+    if sub: sys.stdout.write(f"  {DIM}{sub}{RESET}\n\n")
+    sys.stdout.flush()
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f: return json.load(f)
+    return {"enabled": list(DEFAULT_ENABLED), "manager_ip": ""}
+
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
+
+def svc_status():
+    r = subprocess.run(["systemctl","is-active",SVC_NAME], capture_output=True, text=True)
+    return r.stdout.strip()
+
+def restart_agent():
+    print(f"\n{CYAN}  Restarting CodeRed Agent...{RESET}")
+    try:
+        subprocess.run(["systemctl","restart",SVC_NAME], check=True)
+        print(f"{GREEN}  ✔ Agent restarted.{RESET}")
+    except subprocess.CalledProcessError:
+        print(f"{RED}  ✖ Failed. Check: journalctl -xeu {SVC_NAME}{RESET}")
+
+def viewport(reserved=10):
+    try: rows = os.get_terminal_size().lines
+    except: rows = 24
+    return max(3, rows - reserved)
+
+MENU = [
+    ("scan",      "Scan Log Directories","Discover logs and choose which to monitor"),
+    ("setup",     "Module Setup",        "Enable or disable monitoring modules"),
+    ("status",    "Agent Status",        "View service status and active modules"),
+    ("settings",  "Agent Settings",      "Configure manager IP and connection"),
+    ("uninstall", "Uninstall Agent",     "Remove CodeRed Server Agent"),
+    ("exit",      "Exit",""),
+]
+
+def show_main_menu():
+    cursor = 0
+    while True:
+        banner("Management Console")
+        svc = svc_status()
+        col = GREEN if svc == "active" else RED
+        sys.stdout.write(f"  Agent Service : {col}{BOLD}{svc}{RESET}\n")
+        sys.stdout.write(f"  Config        : {DIM}{AGENT_CONF}{RESET}\n\n")
+        sys.stdout.write(f"  {DIM}↑↓ move · Enter select · 1-5 shortcut{RESET}\n\n")
+        for i,(key,label,desc) in enumerate(MENU):
+            arrow=f"{CYAN}▶{RESET}" if i==cursor else " "
+            num  =f"{DIM}[0]{RESET}" if key=="exit" else f"{CYAN}[{i+1}]{RESET}"
+            hi   =BOLD if i==cursor else ""
+            sys.stdout.write(f"  {arrow} {num} {hi}{label}{RESET}\n")
+            if desc and i==cursor: sys.stdout.write(f"       {DIM}{desc}{RESET}\n")
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+        ch = getch()
+        if   ch=="UP"   and cursor>0:           cursor-=1
+        elif ch=="DOWN" and cursor<len(MENU)-1: cursor+=1
+        elif ch in("\r","\n"):
+            k=MENU[cursor][0]
+            if   k=="exit":      clear(); sys.exit(0)
+            elif k=="scan":      menu_scan()
+            elif k=="setup":     menu_setup()
+            elif k=="status":    menu_status()
+            elif k=="settings":  menu_settings()
+            elif k=="uninstall": menu_uninstall()
+        elif ch=="1": menu_scan()
+        elif ch=="2": menu_setup()
+        elif ch=="3": menu_status()
+        elif ch=="4": menu_settings()
+        elif ch=="5": menu_uninstall()
+        elif ch in("0","q"): clear(); sys.exit(0)
+
+def menu_scan():
+    try:
+        if not os.path.exists(DISCOVER_PATH):
+            banner("Scan Log Directories")
+            sys.stdout.write(f"{RED}  coredited-discover.py not found:\n  {DISCOVER_PATH}{RESET}\n\n")
+            input("  Press Enter to return..."); return
+        spec=importlib.util.spec_from_file_location("discover",DISCOVER_PATH)
+        mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        mod.run_discovery()
+        input(f"\n  Press {BOLD}Enter{RESET} to return...")
+    except KeyboardInterrupt:
+        sys.stdout.write(f"\n{YELLOW}  Cancelled.{RESET}\n")
+
+def menu_setup():
+    """
+    Module setup only updates state.json.
+    Modules other than log-collection are already active in Wazuh defaults.
+    Enabling log-collection here schedules it — run scan to add log sources.
+    """
+    state=load_state(); enabled=set(state["enabled"]); keys=list(MODULES.keys())
+    cursor=0; vs=0
+    def render():
+        nonlocal vs
+        vp=viewport(8)
+        if cursor<vs: vs=cursor
+        elif cursor>=vs+vp: vs=cursor-vp+1
+        ve=min(vs+vp,len(keys))
+        banner("Module Setup")
+        sys.stdout.write(f"  {DIM}↑↓ · Space toggle · A all · N none · Enter save · Q back{RESET}\n")
+        sys.stdout.write(f"  {DIM}Note: fim/inventory/threat/vuln/compliance/active-response{RESET}\n")
+        sys.stdout.write(f"  {DIM}are always active via Wazuh defaults.{RESET}\n\n")
+        for i in range(vs,ve):
+            mid=keys[i]; mod=MODULES[mid]
+            tick=f"{GREEN}✔{RESET}" if mid in enabled else f"{RED}✖{RESET}"
+            arrow=f"{CYAN}▶{RESET}" if i==cursor else " "
+            hi=BOLD if i==cursor else ""
+            sys.stdout.write(f"  {arrow} [{tick}] {hi}{mod['label']}{RESET}\n")
+            if i==cursor: sys.stdout.write(f"       {DIM}{mod['desc']}{RESET}\n")
+        sys.stdout.write(f"\n  {DIM}──────────────────────────────────────{RESET}\n")
+        sys.stdout.write(f"  {len(enabled)} module(s) enabled\n")
+        sys.stdout.flush()
+    render()
+    while True:
+        ch=getch()
+        if   ch=="UP"   and cursor>0:           cursor-=1
+        elif ch=="DOWN" and cursor<len(keys)-1: cursor+=1
+        elif ch==" ":
+            mid=keys[cursor]
+            if mid in enabled: enabled.discard(mid)
+            else: enabled.add(mid)
+        elif ch.lower()=="a": enabled=set(keys)
+        elif ch.lower()=="n": enabled=set()
+        elif ch in("\r","\n"):
+            state["enabled"]=list(enabled); save_state(state)
+            sys.stdout.write(f"\n{GREEN}  ✔ Module preferences saved.{RESET}\n")
+            sys.stdout.write(f"  {DIM}Note: Only log-collection affects ossec.conf. Run scan to add log sources.{RESET}\n")
+            input(f"\n  Press {BOLD}Enter{RESET} to return..."); return
+        elif ch.lower()=="q": return
+        render()
+
+def menu_status():
+    banner("Agent Status")
+    state=load_state(); enabled=set(state["enabled"])
+    svc=svc_status(); col=GREEN if svc=="active" else RED
+    sys.stdout.write(f"  Service Status : {col}{BOLD}{svc}{RESET}\n")
+    sys.stdout.write(f"  Manager IP     : {CYAN}{state.get('manager_ip','(not set)')}{RESET}\n")
+    sys.stdout.write(f"  Config File    : {DIM}{AGENT_CONF}{RESET}\n\n")
+    sys.stdout.write(f"  {BOLD}{'Module':<30} Status{RESET}\n  {'─'*44}\n")
+    for mid,mod in MODULES.items():
+        st=f"{GREEN}enabled{RESET}" if mid in enabled else f"{RED}disabled{RESET}"
+        sys.stdout.write(f"  {mod['label']:<30} {st}\n")
+    sys.stdout.write("\n"); sys.stdout.flush()
+    input(f"  Press {BOLD}Enter{RESET} to return...")
+
+def menu_settings():
+    while True:
+        banner("Agent Settings")
+        state=load_state()
+        sys.stdout.write(f"  Manager IP  : {CYAN}{state.get('manager_ip','(not set)')}{RESET}\n")
+        sys.stdout.write(f"  Config File : {DIM}{AGENT_CONF}{RESET}\n\n")
+        sys.stdout.write(f"  {CYAN}[1]{RESET} Change Manager IP\n")
+        sys.stdout.write(f"  {CYAN}[2]{RESET} Test connection to Manager\n")
+        sys.stdout.write(f"  {CYAN}[3]{RESET} Restart Agent\n")
+        sys.stdout.write(f"  {DIM}[0]{RESET} Back\n\n"); sys.stdout.flush()
+        ch=input("  Select: ").strip()
+        if ch=="1":
+            ip=input("\n  Enter Manager IP or hostname: ").strip()
+            if ip:
+                state["manager_ip"]=ip; save_state(state)
+                # Use sed — never rewrites whole file
+                subprocess.run(["sed","-i",
+                    f"s|<address>.*</address>|<address>{ip}</address>|g",
+                    AGENT_CONF])
+                print(f"\n{GREEN}  ✔ Manager IP updated to: {ip}{RESET}")
+                print(f"  {YELLOW}Restart agent for changes to take effect: sudo systemctl restart wazuh-agent{RESET}")
+            input(f"\n  Press {BOLD}Enter{RESET} to continue...")
+        elif ch=="2":
+            ip=state.get("manager_ip","")
+            if not ip: print(f"\n{RED}  No Manager IP set.{RESET}")
+            else:
+                print(f"\n  Testing {CYAN}{ip}:1514{RESET}...")
+                try:
+                    import socket; s=socket.create_connection((ip,1514),timeout=5); s.close()
+                    print(f"{GREEN}  ✔ Manager is reachable.{RESET}")
+                except Exception as e: print(f"{RED}  ✖ {e}{RESET}")
+            input(f"\n  Press {BOLD}Enter{RESET} to continue...")
+        elif ch=="3":
+            restart_agent()
+            input(f"\n  Press {BOLD}Enter{RESET} to continue...")
+        elif ch=="0": return
+
+def menu_uninstall():
+    banner("Uninstall Agent")
+    sys.stdout.write(f"  {YELLOW}{BOLD}Warning: This will remove CodeRed Server Agent.{RESET}\n\n")
+    confirm=input(f"  Type {BOLD}UNINSTALL{RESET} to confirm: ").strip()
+    if confirm!="UNINSTALL":
+        print(f"\n{YELLOW}  Cancelled.{RESET}"); input(f"  Press {BOLD}Enter{RESET} to return..."); return
+    subprocess.run(["systemctl","stop",SVC_NAME], capture_output=True)
+    for cmd in [["apt-get","remove","--purge","-y","wazuh-agent"],
+                ["dnf","remove","-y","wazuh-agent"],["yum","remove","-y","wazuh-agent"]]:
+        try:
+            if subprocess.run(cmd,capture_output=True).returncode==0: break
+        except FileNotFoundError: continue
+    shutil.rmtree("/etc/coredited",ignore_errors=True)
+    for f in ["/usr/local/bin/coredited-agent",
+              "/etc/apt/sources.list.d/wazuh.list",
+              "/usr/share/keyrings/wazuh.gpg",
+              "/etc/yum.repos.d/wazuh.repo"]:
+        try: os.remove(f)
+        except: pass
+    print(f"\n{GREEN}{BOLD}  ✔ Removed.{RESET}\n"); sys.exit(0)
+
+def cmd_enable(mod):
+    state=load_state()
+    if mod in state["enabled"]: print(f"{YELLOW}{MODULES[mod]['label']} already enabled.{RESET}"); return
+    state["enabled"].append(mod); save_state(state)
+    print(f"{GREEN}✔ Enabled: {MODULES[mod]['label']}{RESET}")
+    if mod == "log-collection":
+        print(f"{DIM}Run 'sudo coredited-agent scan' to add log sources to monitoring.{RESET}")
+
+def cmd_disable(mod):
+    state=load_state()
+    if mod not in state["enabled"]: print(f"{YELLOW}{MODULES[mod]['label']} already disabled.{RESET}"); return
+    state["enabled"].remove(mod); save_state(state)
+    print(f"{GREEN}✔ Disabled: {MODULES[mod]['label']}{RESET}")
+
+def main():
+    if not is_root():
+        print(f"{RED}Please run as root (sudo coredited-agent){RESET}"); sys.exit(1)
+    p=argparse.ArgumentParser(prog="coredited-agent")
+    s=p.add_subparsers(dest="cmd")
+    s.add_parser("scan"); s.add_parser("setup"); s.add_parser("status")
+    s.add_parser("settings"); s.add_parser("uninstall"); s.add_parser("restart")
+    pe=s.add_parser("enable");  pe.add_argument("module",choices=MODULES.keys())
+    pd=s.add_parser("disable"); pd.add_argument("module",choices=MODULES.keys())
+    args=p.parse_args()
+    dispatch={"scan":menu_scan,"setup":menu_setup,"status":menu_status,
+              "settings":menu_settings,"uninstall":menu_uninstall,
+              "restart":restart_agent}
+    if args.cmd in dispatch: dispatch[args.cmd](); return
+    if args.cmd=="enable":  cmd_enable(args.module); return
+    if args.cmd=="disable": cmd_disable(args.module); return
+    try: show_main_menu()
+    except KeyboardInterrupt: clear(); print(f"  {DIM}Goodbye.{RESET}\n"); sys.exit(0)
+
+if __name__=="__main__": main()
