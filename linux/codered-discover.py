@@ -156,12 +156,11 @@ def inject_into_conf(selected):
         lines.append(f"  <localfile>\n    <log_format>{fmt}</log_format>\n    <location>{item['path']}</location>\n  </localfile>")
     lines.append(f"  {end_tag}")
     block = "\n".join(lines)
-    # Insert block before the closing tag (replace first occurrence only)
-    idx = conf.rfind("</ossec_config>")
-    if idx != -1:
-        conf = conf[:idx] + block + "\n</ossec_config>" + conf[idx+len("</ossec_config>"):]
-    else:
-        conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
+    # Append as a NEW <ossec_config> block at end of file.
+    # Never inject inside existing blocks — Wazuh's multi-block format
+    # means inserting inside an <active-response> block causes execd to
+    # reject 'log_format' as invalid in that context.
+    conf = conf.rstrip() + "\n\n<ossec_config>\n" + block + "\n</ossec_config>\n"
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
     shutil.copy2(AGENT_CONF, AGENT_CONF+".bak")
     # Atomic write: write to temp file then rename to avoid truncation on error
