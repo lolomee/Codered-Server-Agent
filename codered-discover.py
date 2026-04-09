@@ -386,10 +386,13 @@ def inject_into_conf(selected: list):
         print(f"{YELLOW}  Agent config not found at {AGENT_CONF}. Skipping.{RESET}")
         return
 
+    # Step 1: heal any pre-existing invalid formats in the config first
+    heal_ossec_conf()
+
     with open(AGENT_CONF) as f:
         conf = f.read()
 
-    # Remove previous discovery block
+    # Step 2: remove previous discovery block
     start_tag = "<!-- CodeRed Discovered Logs -->"
     end_tag   = "<!-- END:discovered-logs -->"
     s = conf.find(start_tag)
@@ -397,7 +400,7 @@ def inject_into_conf(selected: list):
     if s != -1 and e != -1:
         conf = conf[:s] + conf[e + len(end_tag):]
 
-    # Build new block — normalise format per OS
+    # Step 3: build new block — normalise format per OS
     lines = [f"  {start_tag}"]
     skipped = 0
     for item in selected:
@@ -417,7 +420,7 @@ def inject_into_conf(selected: list):
     if skipped:
         print(f"{YELLOW}  ⚠ {skipped} log format(s) normalised to 'syslog' for compatibility.{RESET}")
 
-    # Write to temp file and validate before overwriting
+    # Step 4: write to temp, validate full config, then atomically replace
     tmp_path = AGENT_CONF + ".tmp"
     with open(tmp_path, "w") as f:
         f.write(new_conf)
