@@ -272,37 +272,54 @@ def save_state(state: dict):
 
 # ── Config validation ─────────────────────────────────────────────────────────
 def validate_conf(conf_path: str) -> tuple:
-    """
-    Validate ossec.conf before applying.
-    Returns (ok: bool, error: str)
-    """
-    # 1. XML structure check (both platforms)
+    """Validate ossec.conf. Returns (ok: bool, error: str)."""
+    import xml.etree.ElementTree as ET
+
+    # 1. XML structure check
     try:
         ET.parse(conf_path)
     except ET.ParseError as e:
         return False, f"XML parse error: {e}"
 
-    # 2. Check for invalid log formats (scan <localfile> blocks)
+    # 2. log_format value check
     valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
     try:
         tree = ET.parse(conf_path)
         root = tree.getroot()
         for lf in root.iter("localfile"):
             fmt_el = lf.find("log_format")
-            if fmt_el is not None and fmt_el.text and fmt_el.text.strip() not in valid:
-                return False, f"Invalid log_format '{fmt_el.text.strip()}' for this OS"
+            if fmt_el is not None and fmt_el.text:
+                fmt = fmt_el.text.strip()
+                if fmt not in valid:
+                    loc_el = lf.find("location")
+                    loc    = loc_el.text.strip() if loc_el is not None and loc_el.text else "unknown"
+                    return False, f"Invalid log_format '{fmt}' for '{loc}'"
     except Exception as e:
-        return False, str(e)
+        return False, f"Config parse error: {e}"
 
-    # 3. Linux only: wazuh-agentd -t dry-run
+    # 3. Linux only: swap file, run wazuh-agentd -t, restore
     if not IS_WIN:
+        live_conf = "/var/ossec/etc/ossec.conf"
+        backup    = live_conf + ".validation_bak"
         for binary in ["/var/ossec/bin/wazuh-agentd", "/var/ossec/bin/ossec-agentd"]:
             if os.path.exists(binary):
-                r = subprocess.run([binary, "-t"],
-                                   capture_output=True, text=True)
-                if r.returncode != 0:
-                    err = (r.stderr or r.stdout or "").strip()
-                    return False, err
+                try:
+                    shutil.copy2(live_conf, backup)
+                    shutil.copy2(conf_path, live_conf)
+                    r = subprocess.run([binary, "-t"], capture_output=True, text=True)
+                    shutil.copy2(backup, live_conf)
+                    try: os.remove(backup)
+                    except: pass
+                    if r.returncode != 0:
+                        err = (r.stderr + r.stdout).strip()
+                        error_lines = [l for l in err.splitlines() if "ERROR" in l]
+                        return False, "\n".join(error_lines) if error_lines else err
+                except Exception as e:
+                    if os.path.exists(backup):
+                        shutil.copy2(backup, live_conf)
+                        try: os.remove(backup)
+                        except: pass
+                    return False, f"Validation error: {e}"
                 break
 
     return True, ""
@@ -328,7 +345,8 @@ def write_conf(content: str) -> bool:
         if not ok:
             os.remove(tmp)
             print(f"\n{RED}  ✖ Config validation failed — changes NOT applied.{RESET}")
-            print(f"  {DIM}{err[:300]}{RESET}\n")
+            if err:
+                print(f"  {DIM}{err[:300]}{RESET}\n")
             return False
         shutil.copy2(AGENT_CONF, AGENT_CONF + ".bak")
         shutil.move(tmp, AGENT_CONF)

@@ -351,34 +351,65 @@ def safe_format(fmt: str) -> str:
 
 def validate_ossec_conf(conf_path: str) -> tuple:
     """
-    Run wazuh-logtest or ossec-logtest dry-run to validate ossec.conf.
+    Validate ossec.conf before applying.
     Returns (ok: bool, error: str).
-    Falls back to basic XML check if test binary not available.
     """
-    # Try Wazuh agent config test
-    test_bins = [
-        "/var/ossec/bin/wazuh-agentd",
-        "/var/ossec/bin/ossec-agentd",
-    ]
-    for binary in test_bins:
-        if os.path.exists(binary):
-            r = subprocess.run(
-                [binary, "-t"],
-                capture_output=True, text=True
-            )
-            if r.returncode != 0:
-                # Extract meaningful error from stderr/stdout
-                err = (r.stderr or r.stdout or "").strip()
-                return False, err
-            return True, ""
+    import xml.etree.ElementTree as ET
 
-    # Fallback: basic XML validity check using Python
+    # 1. XML structure check — catches duplicate closing tags, malformed XML
     try:
-        import xml.etree.ElementTree as ET
         ET.parse(conf_path)
-        return True, ""
+    except ET.ParseError as e:
+        return False, f"XML parse error: {e}"
+
+    # 2. log_format value check — catches invalid formats before wazuh sees them
+    valid = VALID_FORMATS_WIN if IS_WIN else VALID_FORMATS_LINUX
+    try:
+        tree = ET.parse(conf_path)
+        root = tree.getroot()
+        for lf in root.iter("localfile"):
+            fmt_el = lf.find("log_format")
+            if fmt_el is not None and fmt_el.text:
+                fmt = fmt_el.text.strip()
+                if fmt not in valid:
+                    loc_el = lf.find("location")
+                    loc    = loc_el.text.strip() if loc_el is not None and loc_el.text else "unknown"
+                    return False, f"Invalid log_format '{fmt}' for location '{loc}'"
     except Exception as e:
-        return False, str(e)
+        return False, f"Config parse error: {e}"
+
+    # 3. Linux only: copy tmp to ossec dir and run wazuh-agentd -t
+    # wazuh-agentd -t always reads from /var/ossec/etc/ossec.conf so we
+    # temporarily swap the file, run the test, then restore
+    if not IS_WIN:
+        live_conf = "/var/ossec/etc/ossec.conf"
+        backup    = live_conf + ".validation_bak"
+        for binary in ["/var/ossec/bin/wazuh-agentd", "/var/ossec/bin/ossec-agentd"]:
+            if os.path.exists(binary):
+                try:
+                    # Swap: backup live → copy tmp as live → test → restore
+                    shutil.copy2(live_conf, backup)
+                    shutil.copy2(conf_path, live_conf)
+                    r = subprocess.run([binary, "-t"],
+                                       capture_output=True, text=True)
+                    shutil.copy2(backup, live_conf)  # always restore
+                    os.remove(backup)
+
+                    if r.returncode != 0:
+                        err = (r.stderr + r.stdout).strip()
+                        # Filter to just the ERROR lines
+                        error_lines = [l for l in err.splitlines() if "ERROR" in l]
+                        return False, "\n".join(error_lines) if error_lines else err
+                except Exception as e:
+                    # Ensure live config is restored even if something goes wrong
+                    if os.path.exists(backup):
+                        shutil.copy2(backup, live_conf)
+                        try: os.remove(backup)
+                        except: pass
+                    return False, f"Validation swap error: {e}"
+                break
+
+    return True, ""
 
 # ── ossec.conf injection ──────────────────────────────────────────────────────
 def inject_into_conf(selected: list):
@@ -428,10 +459,12 @@ def inject_into_conf(selected: list):
         f.write(new_conf)
 
     ok, err = validate_ossec_conf(tmp_path)
-    if not ok and err:
-        os.remove(tmp_path)
+    if not ok:
+        try: os.remove(tmp_path)
+        except: pass
         print(f"{RED}  ✖ Config validation failed — agent config NOT updated.{RESET}")
-        print(f"  {DIM}{err[:200]}{RESET}")
+        if err:
+            print(f"  {DIM}{err[:300]}{RESET}")
         return
 
     # Validation passed — apply
