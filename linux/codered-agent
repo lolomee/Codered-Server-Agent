@@ -266,7 +266,7 @@ def menu_settings():
                     ["/var/ossec/bin/agent-auth", "-m", ip, "-F", "0"],
                     capture_output=True, text=True
                 )
-                if reg.returncode == 0 or os.path.getsize("/var/ossec/etc/client.keys") > 0:
+                if reg.returncode == 0 or (os.path.exists("/var/ossec/etc/client.keys") and os.path.getsize("/var/ossec/etc/client.keys") > 0):
                     print(f"{GREEN}  ✔ Agent registered successfully.{RESET}")
                 else:
                     print(f"{YELLOW}  ⚠ Registration output: {reg.stderr.strip()[-200:]}{RESET}")
