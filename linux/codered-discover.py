@@ -114,23 +114,36 @@ def getch():
 
 def clear(): sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 
-def write_codered_conf(content: str) -> bool:
-    """Write to codered.conf — our safe include file, never touching ossec.conf."""
-    try:
-        with open(CODERED_CONF, "w") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        subprocess.run(["chown","root:wazuh", CODERED_CONF], capture_output=True)
-        os.chmod(CODERED_CONF, 0o660)
-        return True
-    except Exception as ex:
-        print(f"{RED}  ✖ Write failed: {ex}{RESET}")
+def write_conf_bash(content: str) -> bool:
+    """Write to ossec.conf via bash cat redirect — preserves Wazuh file attributes."""
+    result = subprocess.run(
+        ["bash", "-c", f"cat > {AGENT_CONF}"],
+        input=content.encode("utf-8"),
+        capture_output=True
+    )
+    if result.returncode != 0:
+        print(f"{RED}  ✖ Write failed: {result.stderr.decode()}{RESET}")
         return False
+    subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+    os.chmod(AGENT_CONF, 0o660)
+    return True
 
 def inject_into_conf(selected):
-    """Write selected logs to codered.conf (include file)."""
-    lines = ["<ossec_config>", "  <!-- CodeRed Discovered Logs -->"]
+    """Inject discovered logs into ossec.conf using bash write."""
+    if not os.path.exists(AGENT_CONF):
+        print(f"{YELLOW}  Agent config not found. Skipping.{RESET}"); return
+
+    with open(AGENT_CONF) as f: conf = f.read()
+
+    # Remove previous discovery block
+    start_tag = "<!-- CodeRed Discovered Logs -->"
+    end_tag   = "<!-- END:discovered-logs -->"
+    s, e = conf.find(start_tag), conf.find(end_tag)
+    if s != -1 and e != -1:
+        conf = conf[:s] + conf[e + len(end_tag):]
+
+    # Build new block
+    lines = [f"  {start_tag}"]
     fixed = 0
     for item in selected:
         fmt = item["format"] if item["format"] in VALID_FORMATS else "syslog"
@@ -141,13 +154,24 @@ def inject_into_conf(selected):
             f"    <location>{item['path']}</location>\n"
             f"  </localfile>"
         )
-    lines.append("  <!-- END:discovered-logs -->")
-    lines.append("</ossec_config>")
-    content = "\n".join(lines) + "\n"
+    lines.append(f"  {end_tag}")
+    block = "\n".join(lines)
+
+    # Insert before first closing tag
+    if "</ossec_config>" in conf:
+        new_conf = conf.replace("</ossec_config>", block + "\n</ossec_config>", 1)
+    else:
+        new_conf = conf.rstrip() + "\n" + block + "\n</ossec_config>\n"
 
     if fixed: print(f"{YELLOW}  ⚠ {fixed} format(s) normalised to 'syslog'.{RESET}")
-    if write_codered_conf(content):
-        print(f"{GREEN}  ✔ Config written to {CODERED_CONF}{RESET}")
+
+    # Sanity check
+    if new_conf.count("</ossec_config>") != 1:
+        print(f"{RED}  ✖ Config structure error — aborting.{RESET}"); return
+
+    subprocess.run(["cp", AGENT_CONF, AGENT_CONF + ".bak"], capture_output=True)
+    if write_conf_bash(new_conf):
+        print(f"{GREEN}  ✔ Config updated.{RESET}")
 
 def present_ui(discovered, custom_logs):
     items = []
