@@ -3,7 +3,6 @@
 CodeRed Server Agent — Linux CLI
 """
 import os, sys, re, shutil, subprocess, argparse, json, importlib.util
-import xml.etree.ElementTree as ET
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 AGENT_CONF    = "/var/ossec/etc/ossec.conf"
@@ -108,30 +107,19 @@ def heal_formats(content):
     return re.sub(r"<log_format>(.*?)</log_format>", fix, content)
 
 def validate_conf(content):
-    """Validate config by writing to temp file and parsing with ET.parse."""
-    if not content or len(content.strip()) < 10:
+    """Basic sanity checks — Wazuh's own parser is the real validator."""
+    if not content or len(content.strip()) < 50:
         return False, "Config content is empty"
     if "</ossec_config>" not in content:
         return False, "Missing </ossec_config> closing tag"
-    tmp = AGENT_CONF + ".validate_tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(content)
-        # Use ET.parse (not fromstring) — handles XML comments before root element
-        ET.parse(tmp)
-        # Restore permissions
-        import subprocess
-        subprocess.run(["chown","root:wazuh", tmp], capture_output=True)
-        os.remove(tmp)
-        return True, ""
-    except ET.ParseError as e:
-        try: os.remove(tmp)
-        except: pass
-        return False, f"XML error: {e}"
-    except Exception as e:
-        try: os.remove(tmp)
-        except: pass
-        return False, f"Validation error: {e}"
+    if content.count("</ossec_config>") > 1:
+        return False, f"Duplicate </ossec_config> tag ({content.count('</ossec_config>')} found)"
+    # Check for invalid log formats
+    for m in re.finditer(r"<log_format>(.*?)</log_format>", content):
+        fmt = m.group(1).strip()
+        if fmt not in VALID_FORMATS:
+            return False, f"Invalid log_format: '{fmt}'"
+    return True, ""
 
 def write_conf(content):
     content = heal_formats(content)
