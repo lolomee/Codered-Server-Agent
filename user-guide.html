@@ -1539,13 +1539,54 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
 .\install-codered-agent.ps1</pre>
       </div>
 
-      <h3>Windows — Python not found</h3>
-      <p>If <code>codered-agent setup</code> says Python was not found, install it first:</p>
-      <div class="code-block">
-        <div class="code-header"><span class="code-lang">powershell</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
-        <pre>winget install Python.Python.3.12 --accept-package-agreements</pre>
+      <h3>Windows — Python not found / winget not available</h3>
+      <p>The installer tries to auto-install Python via <code>winget</code>. If <code>winget</code> is not available (common on Windows Server 2016/2019), install Python manually:</p>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span><strong>Do not use winget on older Windows Server</strong> — it is not available by default on Server 2016/2019. Install Python manually instead.</span>
       </div>
-      <p style="font-size:12.5px;color:var(--text-dim)">Close and reopen PowerShell after installing Python, then retry <code>codered-agent setup</code>. Make sure <strong>Add Python to PATH</strong> was ticked during install.</p>
+      <ol style="margin-left:1.5rem;line-height:2">
+        <li>Go to <strong><a href="https://python.org/downloads" target="_blank">https://python.org/downloads</a></strong></li>
+        <li>Download the latest Python 3.x Windows installer</li>
+        <li>During install — tick <strong>"Add Python to PATH"</strong> ✅ (this is critical)</li>
+        <li>Click Install Now and wait for it to complete</li>
+        <li>Close and open a <strong>new PowerShell as Administrator</strong></li>
+        <li>Re-run the CodeRed installer</li>
+      </ol>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell — verify Python installed correctly</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre>python --version</pre>
+      </div>
+
+      <h3>Windows — Connection closed / TLS error during download</h3>
+      <p>If you see <em>"The underlying connection was closed: An unexpected error occurred on a receive"</em> when running <code>iwr</code>, this is a TLS version mismatch. Older Windows defaults to TLS 1.0/1.1 but GitHub requires TLS 1.2+.</p>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <span><strong>Do not use PowerShell ISE</strong> — use regular PowerShell (right-click → Run as Administrator). PowerShell ISE has known issues with <code>iwr</code> on older systems.</span>
+      </div>
+      <p>Force TLS 1.2 before downloading:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">powershell — run as Administrator</span><button class="copy-btn" onclick="copyCode(this)">copy</button></div>
+        <pre><span class="t-dim"># Step 1 — Force TLS 1.2</span>
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+<span class="t-dim"># Step 2 — Download installer</span>
+iwr https://raw.githubusercontent.com/lolomee/Codered-Server-Agent/main/install-codered-agent.ps1 -OutFile install-codered-agent.ps1
+
+<span class="t-dim"># Step 3 — Run installer</span>
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\install-codered-agent.ps1</pre>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr><td><code>winget not found</code></td><td>Old Windows Server (2016/2019)</td><td>Install Python manually from python.org — tick Add to PATH</td></tr>
+            <tr><td><code>connection was closed</code></td><td>TLS 1.0/1.1 default on old Windows</td><td>Add <code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12</code> before <code>iwr</code></td></tr>
+            <tr><td>Running in PowerShell ISE</td><td>ISE has known <code>iwr</code> issues</td><td>Use regular PowerShell as Administrator instead</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <!-- 10 Uninstalling -->
