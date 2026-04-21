@@ -74,8 +74,8 @@ def save_state(state):
     with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
 
 def svc_status():
-    r = subprocess.run(["systemctl","is-active",SVC_NAME], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    return r.stdout.strip()
+    r = subprocess.run(["systemctl","is-active",SVC_NAME], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return r.stdout.decode("utf-8", errors="replace").strip()
 
 def clear_agent_keys():
     """Remove client.keys so agent re-registers fresh with manager."""
@@ -100,7 +100,7 @@ def restart_agent(clear_keys=False):
         # Check for duplicate name error in logs
         log_check = subprocess.run(
             ["grep", "-i", "duplicate agent", "/var/ossec/logs/ossec.log"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         if log_check.stdout:
             print(f"{YELLOW}  ⚠ Duplicate agent name detected on manager.{RESET}")
@@ -264,7 +264,7 @@ def menu_settings():
                 print(f"  {DIM}Registering agent with manager (force mode)...{RESET}")
                 reg = subprocess.run(
                     ["/var/ossec/bin/agent-auth", "-m", ip, "-F", "0"],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
                 )
                 if reg.returncode == 0 or (os.path.exists("/var/ossec/etc/client.keys") and os.path.getsize("/var/ossec/etc/client.keys") > 0):
                     print(f"{GREEN}  ✔ Agent registered successfully.{RESET}")

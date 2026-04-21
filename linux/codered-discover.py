@@ -51,7 +51,7 @@ def get_active_services():
     try:
         out = subprocess.check_output(
             ["systemctl","list-units","--type=service","--state=active","--no-pager","--plain","--no-legend"],
-            stderr=subprocess.DEVNULL, text=True)
+            stderr=subprocess.DEVNULL)
         return {l.split()[0].replace(".service","") for l in out.splitlines() if l.strip()}
     except: return set()
 
@@ -59,7 +59,7 @@ def get_installed_packages():
     pkgs = set()
     for cmd in [["dpkg","--get-selections"],["rpm","-qa","--qf","%{NAME}\n"]]:
         try:
-            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True)
+            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
             pkgs.update(l.split()[0] for l in out.splitlines() if l.strip())
         except: continue
     return pkgs
