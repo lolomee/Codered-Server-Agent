@@ -114,7 +114,7 @@ def clear(): sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 def restore_perms():
     """Restore correct Wazuh file ownership and permissions."""
     try:
-        subprocess.run(["chown", "root:wazuh", AGENT_CONF], capture_output=True)
+        subprocess.run(["chown", "root:wazuh", AGENT_CONF], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         os.chmod(AGENT_CONF, 0o660)
     except Exception:
         pass
