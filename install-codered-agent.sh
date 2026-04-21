@@ -89,7 +89,7 @@ REPOEOF
 
 case "$ID" in
   ubuntu|debian)                       install_deb ;;
-  centos|rhel|rocky|almalinux|fedora) install_rpm ;;
+  centos|rhel|rocky|almalinux|fedora|ol|oraclelinux) install_rpm ;;
   *) die "Unsupported OS: ${ID}" ;;
 esac
 ok "Wazuh agent installed."
