@@ -112,6 +112,13 @@ PYTHON3_PATH=$(command -v python3)
 sed -i "1s|.*|#!${PYTHON3_PATH}|" "${CLI_BIN}"
 ok "CLI installed at ${CLI_BIN}"
 
+# On RHEL/CentOS/Oracle Linux, /usr/local/bin is not in sudo secure_path by default
+# Create a symlink in /usr/bin so 'sudo codered-agent' works out of the box
+if command -v rpm &>/dev/null && [[ ! -f /usr/bin/codered-agent ]]; then
+  ln -sf "${CLI_BIN}" /usr/bin/codered-agent
+  ok "Symlink created: /usr/bin/codered-agent (fixes sudo secure_path on Oracle/RHEL/CentOS)"
+fi
+
 # Install discovery engine
 log "Installing log discovery engine..."
 curl -fsSL "${REPO_BASE}/linux/codered-discover.py" -o "${INSTALL_DIR}/codered-discover.py"
