@@ -53,20 +53,54 @@ Write-Step "Agent name: $AgentName"
 
 # ── Python check ──────────────────────────────────────────────────────────────
 Write-Step "Checking Python..."
+
+# Refresh PATH first — picks up Python if just installed in this session
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+# Check python, python3, and common install paths
 $python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
+if (-not $python) {
+    # Check common Python install locations directly
+    $commonPaths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Python310\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe"
+    )
+    foreach ($p in $commonPaths) {
+        if (Test-Path $p) {
+            # Add its directory to PATH for this session
+            $pyDir = Split-Path $p
+            $env:Path = "$pyDir;$env:Path"
+            $python = Get-Command python -ErrorAction SilentlyContinue
+            break
+        }
+    }
+}
+
 if (-not $python) {
     Write-Warn "Python not found. Installing via winget..."
     try {
         winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        Write-Ok "Python installed."
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if ($python) { Write-Ok "Python installed." }
+        else {
+            Write-Warn "Python installed but PATH not updated. Please close and reopen PowerShell as Administrator, then re-run."
+            exit 1
+        }
     } catch {
         Write-Warn "winget failed. Install Python from https://python.org/downloads (tick Add to PATH), then re-run."
         exit 1
     }
 } else {
     $pyVersion = python --version 2>&1
-    Write-Ok "Python: $pyVersion"
+    Write-Ok "Python found: $pyVersion"
 }
 
 # ── Download MSI ──────────────────────────────────────────────────────────────
